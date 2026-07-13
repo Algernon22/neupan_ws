@@ -1,0 +1,42 @@
+# ---- Build / install artifacts ----
+# colcon (run at workspace root) and any stray CMake build trees
+/build/
+/install/
+/log/
+build/
+build_test/
+
+# ---- CMake ----
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+compile_commands.json
+*.cmake.user
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# ---- Editor / OS ----
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+
+# ---- ROS ----
+*.bag
+*.db3
+
+# NOTE:
+# neupan_ros/models/uav_robot_default/*.rknn and the matching metadata JSON are
+# intentionally tracked for the default C++ runtime launch. If future model
+# files become large or numerous, move them to Git LFS instead of ignoring them.
+#
+# libneupan_uav/tests/data/* is intentionally tracked because it is required by
+# unit and replay tests.
