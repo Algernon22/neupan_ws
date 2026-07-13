@@ -1,0 +1,25 @@
+collision_threshold: 0.0
+receding: 5
+step_time: 0.1
+ref_speed: 1.0
+
+robot:
+  length: 0.64
+  width: 0.64
+  height: 0.54
+  max_speed: [4.0, 4.0, 2.0, 0.8]
+  max_acce: [2.5, 2.5, 1.5, 0.8]
+
+ipath:
+  waypoints:
+    - [0.0, 0.0, 2.0, 0.0]
+    - [20.0, 0.0, 2.0, 0.0]
+  arrive_threshold: 0.8
+
+preselect:
+  enable: false
+
+pan:
+  iter_num: 1
+  dune_max_num: 0
+  nrmp_max_num: 0

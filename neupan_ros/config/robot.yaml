@@ -1,0 +1,56 @@
+neupan_uav_node:
+  ros__parameters:
+    use_sim_time: false
+
+    planner_config_file: "planner.yaml"
+    dune_rknn_metadata_file: "../models/uav_robot_default/obs_point_net_T25_N160_fp.rknn.metadata.json"
+    dune_rknn_core_mask: "CORE_0_1"
+
+    map_frame: "camera_init"
+
+    state_topic: "/Odometry"
+    pointcloud_topic: "/cloud_registered_body"
+    cmd_vel_topic: "/neupan/planner/cmd_vel"
+    applied_cmd_topic: "/neupan/control/applied_cmd_vel"
+    planner_arrived_topic: "/neupan/planner/arrived"
+
+    update_rate: 20.0
+    planner_rate: 10.0
+    max_state_age_ms: 100.0
+    max_cloud_age_ms: 100.0
+
+    roi_auto_xy_padding: 3.0
+    roi_auto_xy_max: 40.0
+    roi_auto_z_min: 4.0
+
+    debug_cloud_filter: false
+    self_filter_margin_xyz: [0.02, 0.02, 0.02]
+    takeoff_ground_clip: -0.05
+    enable_takeoff_phase: true
+    takeoff_phase_height: 1.8
+    takeoff_phase_hysteresis: 0.10
+
+    ignore_stop_flag: false
+    debug: false
+    profile_planner: true
+    profile_log_period: 1.0
+
+px4_control:
+  ros__parameters:
+    planner_cmd_topic: "/neupan/planner/cmd_vel"
+    applied_cmd_topic: "/neupan/control/applied_cmd_vel"
+    planner_arrived_topic: "/neupan/planner/arrived"
+    mavros_state_topic: "/mavros/state"
+    state_odom_topic: "/mavros/local_position/odom"
+    mavros_setpoint_velocity_topic: "/mavros/setpoint_velocity/cmd_vel"
+    setpoint_frame: "camera_init"
+    heartbeat_rate: 20.0
+    command_timeout: 0.30
+    state_odom_timeout: 0.3
+    stamp_future_tolerance_ms: 20.0
+    enable_takeoff_phase: true
+    takeoff_phase_height: 1.8
+    takeoff_phase_hysteresis: 0.10
+    takeoff_phase_climb_speed: 1.0
+    takeoff_phase_max_climb_speed: 2.0
+    control_debug_topic: "/neupan/control_debug"

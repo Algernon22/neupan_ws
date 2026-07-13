@@ -1,0 +1,104 @@
+{
+  "description": "Phase 7.5 deterministic farfield guide Python baseline vs C++ core replay fixture.",
+  "config": {
+    "receding": 4,
+    "step_time": 1.0,
+    "ref_speed": 2.0,
+    "collision_threshold": 0.0,
+    "arrive_threshold": 0.15,
+    "robot": {
+      "kinematics": "uav",
+      "length": 0.46,
+      "width": 0.46,
+      "height": 0.12,
+      "max_speed": [4.0, 4.0, 2.0, 1.0],
+      "max_acce": [10.0, 10.0, 8.0, 5.0],
+      "tau_velocity": [0.35, 0.35, 0.45],
+      "gain_velocity": [1.0, 1.0, 1.0],
+      "tau_yaw_rate": 0.25,
+      "gain_yaw_rate": 1.0,
+      "velocity_weight_scale": 0.35
+    },
+    "ipath": {
+      "waypoints": [
+        [0.0, 0.0, 2.0, 0.0],
+        [20.0, 0.0, 2.0, 0.0]
+      ]
+    },
+    "preselect": {
+      "enable": true,
+      "max_num": 8,
+      "per_step": 0,
+      "nearest_quota_ratio": 1.0,
+      "temporal_enable": false,
+      "temporal_quota_ratio": 0.0,
+      "diversity_enable": false,
+      "diversity_quota_ratio": 0.0,
+      "corridor_margin": [20.0, 20.0, 5.0],
+      "exact_margin": [0.0, 0.0, 0.0]
+    },
+    "farfield_guide": {
+      "enable": true,
+      "range_backoff": 0.0,
+      "range_scale": 1.5,
+      "range_far_limit": 20.0,
+      "lateral_width": 3.0,
+      "center_width": 0.5,
+      "height_window": 1.0,
+      "voxel_size": [0.25, 0.25, 0.25],
+      "trigger_count": 2,
+      "offset_min": 1.0,
+      "offset_max": 4.0,
+      "offset_speed_gain": 1.0,
+      "offset_alpha": 0.25,
+      "release_alpha": 0.5,
+      "release_count": 0,
+      "release_confirm_cycles": 2
+    },
+    "pan": {
+      "iter_num": 1,
+      "dune_max_num": 0,
+      "nrmp_max_num": 0
+    },
+    "adjust": {
+      "q_s": 1.0,
+      "p_u": 1.0,
+      "enable_control_smoothing": true,
+      "smooth_du": 0.0,
+      "smooth_u0": 25.0,
+      "solver_args": {
+        "eps_abs": 1.0e-4,
+        "eps_rel": 1.0e-4,
+        "max_iter": 4000,
+        "verbose": false,
+        "polishing": false,
+        "warm_starting": true
+      }
+    }
+  },
+  "frames": [
+    {
+      "stamp_sec": 0.0,
+      "state": [0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "previous_applied_control": [0.0, 0.0, 0.0, 0.0],
+      "obstacle_points": [
+        [8.2, 0.0, 2.0],
+        [8.6, 0.1, 2.0],
+        [8.4, 1.0, 2.0],
+        [8.8, 1.4, 2.0]
+      ]
+    },
+    {
+      "stamp_sec": 1.0,
+      "state": [2.0, 0.0, 2.0, 0.0, 2.0, 0.0, 0.0, 0.0],
+      "previous_applied_control": [2.0, 0.0, 0.0, 0.0],
+      "obstacle_points": []
+    },
+    {
+      "stamp_sec": 2.0,
+      "state": [4.0, 0.0, 2.0, 0.0, 2.0, 0.0, 0.0, 0.0],
+      "previous_applied_control": [2.0, 0.0, 0.0, 0.0],
+      "obstacle_points": []
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "rknn": "obs_point_net_T25_N160_fp.rknn",
+  "source_onnx": "model/uav_robot_default/obs_point_net_T25_N160.onnx",
+  "source_metadata": "model/uav_robot_default/obs_point_net_T25_N160.metadata.json",
+  "target_platform": "rk3588",
+  "optimization_level": 3,
+  "do_quantization": false,
+  "dataset": null,
+  "receding": 25,
+  "dune_max_num": 160,
+  "max_points": 4160,
+  "output_dim": 6,
+  "input_shape": [
+    1,
+    4160,
+    3
+  ],
+  "output_shape": [
+    1,
+    4160,
+    6
+  ],
+  "checkpoint_epoch": 1150,
+  "checkpoint_is_best": true,
+  "half_extent": [
+    0.3199999928474426,
+    0.3199999928474426,
+    0.27000001072883606
+  ],
+  "scene_scale": [
+    40.0,
+    40.0,
+    10.0
+  ],
+  "clearance_scale": [
+    2.0,
+    2.0,
+    1.0
+  ]
+}

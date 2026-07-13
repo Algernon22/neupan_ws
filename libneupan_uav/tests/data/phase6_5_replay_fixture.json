@@ -1,0 +1,84 @@
+{
+  "description": "Phase 6.5 deterministic no-RKNN Python baseline vs C++ core replay fixture.",
+  "config": {
+    "receding": 4,
+    "step_time": 0.1,
+    "ref_speed": 1.0,
+    "collision_threshold": 0.05,
+    "arrive_threshold": 0.15,
+    "robot": {
+      "kinematics": "uav",
+      "length": 0.46,
+      "width": 0.46,
+      "height": 0.12,
+      "max_speed": [2.0, 2.0, 1.5, 1.0],
+      "max_acce": [10.0, 10.0, 8.0, 5.0],
+      "tau_velocity": [0.35, 0.35, 0.45],
+      "gain_velocity": [1.0, 1.0, 1.0],
+      "tau_yaw_rate": 0.25,
+      "gain_yaw_rate": 1.0,
+      "velocity_weight_scale": 0.35
+    },
+    "ipath": {
+      "waypoints": [
+        [0.0, 0.0, 1.0, 0.0],
+        [1.0, 0.0, 1.0, 0.0],
+        [1.0, 1.0, 1.0, 1.5707963267948966]
+      ]
+    },
+    "preselect": {
+      "enable": true,
+      "max_num": 3,
+      "per_step": 0,
+      "nearest_quota_ratio": 1.0,
+      "temporal_enable": false,
+      "temporal_quota_ratio": 0.0,
+      "diversity_enable": false,
+      "diversity_quota_ratio": 0.0,
+      "corridor_margin": [10.0, 10.0, 10.0],
+      "exact_margin": [0.0, 0.0, 0.0]
+    },
+    "pan": {
+      "iter_num": 1,
+      "dune_max_num": 0,
+      "nrmp_max_num": 0
+    },
+    "adjust": {
+      "q_s": 1.0,
+      "p_u": 1.0,
+      "enable_control_smoothing": true,
+      "smooth_du": 0.0,
+      "smooth_u0": 25.0,
+      "solver_args": {
+        "eps_abs": 1.0e-4,
+        "eps_rel": 1.0e-4,
+        "max_iter": 4000,
+        "verbose": false,
+        "polishing": false,
+        "warm_starting": true
+      }
+    }
+  },
+  "frames": [
+    {
+      "stamp_sec": 0.0,
+      "state": [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "previous_applied_control": [0.2, 0.0, 0.0, 0.0],
+      "obstacle_points": [
+        [2.0, 0.5, 1.2],
+        [3.0, -0.6, 1.0],
+        [4.0, 0.0, 1.3]
+      ]
+    },
+    {
+      "stamp_sec": 0.1,
+      "state": [0.1, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0],
+      "previous_applied_control": [0.95686686, 0.0, 0.0, 0.0],
+      "obstacle_points": [
+        [1.8, 0.4, 1.1],
+        [3.0, -0.5, 1.0],
+        [4.0, 0.0, 1.4]
+      ]
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>libneupan_uav</name>
+  <version>0.1.0</version>
+  <description>
+    ROS-independent C++ UAV planner core skeleton for NeuPAN.
+  </description>
+  <maintainer email="patience@example.com">NeuPAN User</maintainer>
+  <license>GPL-3.0-or-later</license>
+
+  <buildtool_depend>cmake</buildtool_depend>
+  <depend>eigen</depend>
+
+  <test_depend>gtest</test_depend>
+
+  <export>
+    <build_type>cmake</build_type>
+  </export>
+</package>

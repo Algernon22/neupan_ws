@@ -1,0 +1,116 @@
+#include "neupan_ros/adapters.hpp"
+
+#include <gtest/gtest.h>
+
+#include <cmath>
+#include <cstring>
+#include <limits>
+
+#include "sensor_msgs/msg/point_field.hpp"
+
+namespace {
+
+geometry_msgs::msg::Quaternion yawQuaternion(double yaw) {
+  geometry_msgs::msg::Quaternion q;
+  q.w = std::cos(yaw * 0.5);
+  q.z = std::sin(yaw * 0.5);
+  return q;
+}
+
+void writeFloat(std::vector<std::uint8_t>& data, std::size_t offset,
+                float value) {
+  std::memcpy(data.data() + offset, &value, sizeof(float));
+}
+
+sensor_msgs::msg::PointCloud2 makeCloud() {
+  sensor_msgs::msg::PointCloud2 cloud;
+  cloud.height = 1;
+  cloud.width = 3;
+  cloud.point_step = 16;
+  cloud.row_step = cloud.point_step * cloud.width;
+  cloud.is_dense = false;
+  cloud.fields.resize(3);
+  cloud.fields[0].name = "x";
+  cloud.fields[0].offset = 0;
+  cloud.fields[0].datatype = sensor_msgs::msg::PointField::FLOAT32;
+  cloud.fields[0].count = 1;
+  cloud.fields[1].name = "y";
+  cloud.fields[1].offset = 4;
+  cloud.fields[1].datatype = sensor_msgs::msg::PointField::FLOAT32;
+  cloud.fields[1].count = 1;
+  cloud.fields[2].name = "z";
+  cloud.fields[2].offset = 8;
+  cloud.fields[2].datatype = sensor_msgs::msg::PointField::FLOAT32;
+  cloud.fields[2].count = 1;
+  cloud.data.resize(cloud.row_step);
+  writeFloat(cloud.data, 0, 1.0F);
+  writeFloat(cloud.data, 4, 2.0F);
+  writeFloat(cloud.data, 8, 3.0F);
+  writeFloat(cloud.data, 16, std::numeric_limits<float>::quiet_NaN());
+  writeFloat(cloud.data, 20, 4.0F);
+  writeFloat(cloud.data, 24, 5.0F);
+  writeFloat(cloud.data, 32, -1.0F);
+  writeFloat(cloud.data, 36, -2.0F);
+  writeFloat(cloud.data, 40, -3.0F);
+  return cloud;
+}
+
+}  // namespace
+
+TEST(Adapters, OdometryToStatesMatchesPythonConvention) {
+  nav_msgs::msg::Odometry odom;
+  odom.pose.pose.position.x = 10.0;
+  odom.pose.pose.position.y = 20.0;
+  odom.pose.pose.position.z = 30.0;
+  odom.pose.pose.orientation = yawQuaternion(M_PI / 2.0);
+  odom.twist.twist.linear.x = 1.0;
+  odom.twist.twist.linear.y = 0.0;
+  odom.twist.twist.linear.z = 0.5;
+  odom.twist.twist.angular.z = 0.4;
+
+  const neupan_ros::OdomStates states = neupan_ros::odometryToStates(odom);
+
+  EXPECT_NEAR(states.state6(0), 10.0, 1e-12);
+  EXPECT_NEAR(states.state6(1), 20.0, 1e-12);
+  EXPECT_NEAR(states.state6(2), 30.0, 1e-12);
+  EXPECT_NEAR(states.state6(5), M_PI / 2.0, 1e-12);
+  EXPECT_NEAR(states.state4(3), M_PI / 2.0, 1e-12);
+  EXPECT_NEAR(states.twist4(0), 0.0, 1e-12);
+  EXPECT_NEAR(states.twist4(1), 1.0, 1e-12);
+  EXPECT_NEAR(states.twist4(2), 0.5, 1e-12);
+  EXPECT_NEAR(states.twist4(3), 0.4, 1e-12);
+}
+
+TEST(Adapters, ReadsFiniteXyzPoints) {
+  const neupan_uav::PointMatrix points = neupan_ros::readXyzPoints(makeCloud());
+
+  ASSERT_EQ(points.rows(), 3);
+  ASSERT_EQ(points.cols(), 2);
+  EXPECT_NEAR(points(0, 0), 1.0, 1e-6);
+  EXPECT_NEAR(points(1, 0), 2.0, 1e-6);
+  EXPECT_NEAR(points(2, 0), 3.0, 1e-6);
+  EXPECT_NEAR(points(0, 1), -1.0, 1e-6);
+  EXPECT_NEAR(points(1, 1), -2.0, 1e-6);
+  EXPECT_NEAR(points(2, 1), -3.0, 1e-6);
+}
+
+TEST(Adapters, TransformsBodyPointsToWorldAndBack) {
+  Eigen::Matrix<double, 6, 1> state6;
+  state6 << 10.0, 20.0, 30.0, 0.0, 0.0, M_PI / 2.0;
+  neupan_uav::PointMatrix body(3, 2);
+  body << 1.0, 0.0, 0.0, 2.0, 0.0, 0.0;
+
+  const neupan_uav::PointMatrix world =
+      neupan_ros::pointsBodyToWorld(body, state6);
+  ASSERT_EQ(world.cols(), 2);
+  EXPECT_NEAR(world(0, 0), 10.0, 1e-12);
+  EXPECT_NEAR(world(1, 0), 21.0, 1e-12);
+  EXPECT_NEAR(world(0, 1), 8.0, 1e-12);
+  EXPECT_NEAR(world(1, 1), 20.0, 1e-12);
+
+  const neupan_uav::PointMatrix roundtrip =
+      neupan_ros::pointsWorldToBody(world, state6);
+  ASSERT_EQ(roundtrip.rows(), body.rows());
+  ASSERT_EQ(roundtrip.cols(), body.cols());
+  EXPECT_TRUE(roundtrip.isApprox(body, 1e-12));
+}

@@ -1,0 +1,90 @@
+collision_threshold: 0.15
+receding: 25
+step_time: 0.1
+ref_speed: 3.0
+
+robot:
+  kinematics: uav
+  length: 0.64
+  width: 0.64
+  height: 0.54
+  max_speed: [4.0, 4.0, 2.0, 0.8]
+  max_acce: [2.5, 2.5, 1.5, 0.8]
+  tau_velocity: [0.45, 0.45, 0.35]
+  gain_velocity: [1.0, 1.0, 1.0]
+  tau_yaw_rate: 0.30
+  gain_yaw_rate: 1.0
+  velocity_weight_scale: 0.35
+  name: uav
+
+ipath:
+  smooth_method: bezier
+  bezier_corner_ratio: 0.25
+  bezier_corner_max: 3.0
+  bezier_samples: 15
+  bezier_angle_threshold_deg: 5.0
+  yaw_from_tangent: true
+  warn_infeasible_ref_speed: true
+  waypoints:
+    - [0.0, 0.0, 2.0, 0.0]
+    - [20.0, 0.0, 2.0, 0.0]
+  arrive_threshold: 0.8
+
+preselect:
+  enable: true
+  corridor_margin: [6.0, 6.0, 2.0]
+  exact_margin: [0.35, 0.35, 0.25]
+  hard_distance: 0.90
+  per_step: 4
+  nearest_quota_ratio: 0.60
+  diversity_enable: true
+  diversity_voxel_size: [0.8, 0.8, 0.4]
+  diversity_quota_ratio: 0.20
+  temporal_enable: true
+  temporal_radius: 0.45
+  temporal_quota_ratio: 0.20
+
+farfield_guide:
+  enable: true
+  range_backoff: 1.0
+  range_scale: 1.5
+  lateral_width: 5.0
+  center_width: 2.0
+  height_window: 1.5
+  voxel_size: [1.0, 1.0, 0.8]
+  trigger_count: 14
+  offset_min: 1.5
+  offset_max: 4.0
+  offset_speed_gain: 0.60
+  offset_alpha: 0.20
+  release_alpha: 0.08
+  release_count: 4
+  release_confirm_cycles: 3
+
+pan:
+  iter_num: 1
+  iter_threshold: 0.05
+  dune_max_num: 160
+  nrmp_max_num: 20
+  dune_select_nearest_ratio: 0.60
+  dune_select_temporal_ratio: 0.20
+  dune_select_diversity_ratio: 0.20
+
+adjust:
+  q_s: 1.1
+  p_u: 1.5
+  enable_control_smoothing: true
+  smooth_du: 0.8
+  smooth_u0: 6.0
+  eta: 6.0
+  d_max: 4.0         # 最多远离障碍多d_max米
+  d_min: 0.8         # 与障碍物至少保持多远
+  ro_obs: 260
+  bk: 0.18
+  solver_args:
+    eps_abs: 4.0e-4
+    eps_rel: 4.0e-4
+    max_iter: 1000
+    warm_starting: true
+    polishing: false
+    verbose: false
