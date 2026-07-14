@@ -24,13 +24,8 @@ neupan_uav_node:
     roi_auto_z_min: 4.0
 
     self_filter_margin_xyz: [0.02, 0.02, 0.02]
-    takeoff_ground_clip: -0.05
-    enable_takeoff_phase: true
-    takeoff_phase_height: 1.8
-    takeoff_phase_hysteresis: 0.10
 
     profile_planner: false
-    profile_log_period: 0.5
 
 px4_control:
   ros__parameters:

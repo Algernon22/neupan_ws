@@ -38,10 +38,6 @@ UavNode::UavNode(const rclcpp::NodeOptions& options)
   declare_parameter<double>("roi_auto_z_min", 4.0);
   declare_parameter<std::vector<double>>("self_filter_margin_xyz",
                                          {0.05, 0.05, 0.05});
-  declare_parameter<double>("takeoff_ground_clip", -0.02);
-  declare_parameter<bool>("enable_takeoff_phase", true);
-  declare_parameter<double>("takeoff_phase_height", 1.8);
-  declare_parameter<double>("takeoff_phase_hysteresis", 0.1);
   declare_parameter<bool>("profile_planner", false);
 
   const std::string config_dir = get_parameter("robot_config_dir").as_string();
@@ -74,11 +70,6 @@ UavNode::UavNode(const rclcpp::NodeOptions& options)
   } else {
     throw std::runtime_error("self_filter_margin_xyz must be scalar or length 3");
   }
-  takeoff_ground_clip_ = get_parameter("takeoff_ground_clip").as_double();
-  enable_takeoff_phase_ = get_parameter("enable_takeoff_phase").as_bool();
-  takeoff_phase_release_height_ =
-      std::max(0.0, get_parameter("takeoff_phase_height").as_double()) +
-      std::max(0.0, get_parameter("takeoff_phase_hysteresis").as_double());
   profile_planner_ = get_parameter("profile_planner").as_bool();
 
   const double horizon =
@@ -185,19 +176,8 @@ void UavNode::logThrottledWarn(const std::string& key, double period_s,
   RCLCPP_WARN(get_logger(), "%s", message.c_str());
 }
 
-bool UavNode::isTakeoffPhaseActive(double altitude_m) {
-  if (!enable_takeoff_phase_ || takeoff_phase_done_) return false;
-  if (altitude_m >= takeoff_phase_release_height_) {
-    takeoff_phase_done_ = true;
-    RCLCPP_INFO(get_logger(), "Takeoff phase completed at z=%.2fm", altitude_m);
-    return false;
-  }
-  return true;
-}
-
 std::optional<UavNode::LatestCloud> UavNode::processCloud(
-    const sensor_msgs::msg::PointCloud2& msg,
-    const std::optional<double>& altitude_m) {
+    const sensor_msgs::msg::PointCloud2& msg) {
   neupan_uav::PointMatrix points = readXyzPoints(msg);
   const std::uint64_t stamp_ns = stampToNanoseconds(msg.header.stamp);
   LatestCloud cloud;
@@ -214,21 +194,6 @@ std::optional<UavNode::LatestCloud> UavNode::processCloud(
           std::abs(p(2)) <= (*roi_)(2)) {
         kept.push_back(p);
       }
-    }
-    neupan_uav::PointMatrix filtered(3, static_cast<Eigen::Index>(kept.size()));
-    for (Eigen::Index i = 0; i < filtered.cols(); ++i) {
-      filtered.col(i) = kept[static_cast<std::size_t>(i)];
-    }
-    points = filtered;
-  }
-  if (points.cols() == 0) return cloud;
-
-  const double altitude = altitude_m.value_or(0.0);
-  if (isTakeoffPhaseActive(altitude)) {
-    std::vector<Eigen::Vector3d> kept;
-    kept.reserve(static_cast<std::size_t>(points.cols()));
-    for (Eigen::Index col = 0; col < points.cols(); ++col) {
-      if (points(2, col) > takeoff_ground_clip_) kept.push_back(points.col(col));
     }
     neupan_uav::PointMatrix filtered(3, static_cast<Eigen::Index>(kept.size()));
     for (Eigen::Index i = 0; i < filtered.cols(); ++i) {
@@ -275,12 +240,7 @@ void UavNode::stateCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
 }
 
 void UavNode::cloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
-  std::optional<double> altitude;
-  {
-    std::lock_guard<std::mutex> lock(data_mutex_);
-    if (latest_state_.has_value()) altitude = latest_state_->state6(2);
-  }
-  auto cloud = processCloud(*msg, altitude);
+  auto cloud = processCloud(*msg);
   if (!cloud.has_value()) return;
   std::lock_guard<std::mutex> lock(data_mutex_);
   if (latest_cloud_.has_value() && cloud->stamp_ns <= latest_cloud_->stamp_ns) {

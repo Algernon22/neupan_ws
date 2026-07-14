@@ -61,9 +61,7 @@ class UavNode final : public rclcpp::Node {
   void logThrottledWarn(const std::string& key, double period_s,
                         const std::string& message);
   std::optional<LatestCloud> processCloud(
-      const sensor_msgs::msg::PointCloud2& msg,
-      const std::optional<double>& altitude_m);
-  bool isTakeoffPhaseActive(double altitude_m);
+      const sensor_msgs::msg::PointCloud2& msg);
   std::optional<PlannerJob> snapshotPlannerInputs();
   PlannerResult runPlannerOnce(const PlannerJob& job);
   void plannerWorkerMain();
@@ -91,10 +89,6 @@ class UavNode final : public rclcpp::Node {
   Eigen::Vector3d body_half_extent_ = Eigen::Vector3d(0.23, 0.23, 0.06);
   Eigen::Vector3d self_filter_margin_xyz_ =
       Eigen::Vector3d(0.05, 0.05, 0.05);
-  double takeoff_ground_clip_ = -0.02;
-  bool enable_takeoff_phase_ = true;
-  double takeoff_phase_release_height_ = 1.9;
-  bool takeoff_phase_done_ = false;
   bool profile_planner_ = false;
   std::string last_profile_log_;
 
