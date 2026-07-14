@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <limits>
+#include <utility>
 
 namespace {
 
@@ -13,19 +14,25 @@ neupan_uav::PlannerInput basicInput() {
   return input;
 }
 
+neupan_uav::PlannerConfig buildConfig(neupan_uav::PlannerConfig config = {}) {
+  neupan_uav::UavPlannerConfigSpec spec;
+  spec.planner = std::move(config);
+  return neupan_uav::buildUavPlannerConfig(std::move(spec));
+}
+
 neupan_uav::PlannerConfig configWithCommand(
     const neupan_uav::Control& command) {
   neupan_uav::PlannerConfig config;
   config.placeholder_command = command;
   config.robot.max_control =
       neupan_uav::Control::Constant(std::numeric_limits<double>::infinity());
-  return config;
+  return buildConfig(std::move(config));
 }
 
 }  // namespace
 
 TEST(PlannerWarmStart, InitialPreviousAppliedControlIsZero) {
-  neupan_uav::Planner planner(neupan_uav::PlannerConfig{});
+  neupan_uav::Planner planner(buildConfig());
 
   EXPECT_TRUE(planner.previousAppliedControl().isZero());
 
@@ -37,7 +44,7 @@ TEST(PlannerWarmStart, InitialPreviousAppliedControlIsZero) {
 }
 
 TEST(PlannerWarmStart, NotifyAppliedControlSeedsNextForward) {
-  neupan_uav::Planner planner(neupan_uav::PlannerConfig{});
+  neupan_uav::Planner planner(buildConfig());
   const neupan_uav::Control applied =
       (neupan_uav::Control() << 1.0, -2.0, 0.5, 0.25).finished();
 
@@ -65,7 +72,7 @@ TEST(PlannerWarmStart, ForwardDoesNotAutoApplyPlannerOutput) {
 }
 
 TEST(PlannerWarmStart, AcceptsFlatAndRowAppliedControlShapes) {
-  neupan_uav::Planner planner(neupan_uav::PlannerConfig{});
+  neupan_uav::Planner planner(buildConfig());
   Eigen::RowVector4d row;
   row << 0.1, 0.2, 0.3, 0.4;
 
@@ -79,7 +86,7 @@ TEST(PlannerWarmStart, AcceptsFlatAndRowAppliedControlShapes) {
 }
 
 TEST(PlannerWarmStart, RejectsBadAppliedControl) {
-  neupan_uav::Planner planner(neupan_uav::PlannerConfig{});
+  neupan_uav::Planner planner(buildConfig());
 
   EXPECT_THROW(planner.notifyAppliedControl(Eigen::Vector3d::Zero()),
                std::invalid_argument);
@@ -90,7 +97,7 @@ TEST(PlannerWarmStart, RejectsBadAppliedControl) {
 }
 
 TEST(PlannerWarmStart, ResetClearsPreviousAppliedControl) {
-  neupan_uav::Planner planner(neupan_uav::PlannerConfig{});
+  neupan_uav::Planner planner(buildConfig());
   planner.notifyAppliedControl(
       (neupan_uav::Control() << 1.0, 2.0, 3.0, 4.0).finished());
 
@@ -104,7 +111,7 @@ TEST(PlannerWarmStart, ArriveReturnsZeroAndResetsNextSeed) {
   config.has_goal = true;
   config.goal_position = Eigen::Vector3d(1.0, 2.0, 3.0);
   config.arrive_threshold = 0.5;
-  neupan_uav::Planner planner(config);
+  neupan_uav::Planner planner(buildConfig(std::move(config)));
   const neupan_uav::Control applied =
       (neupan_uav::Control() << 1.0, 2.0, 3.0, 4.0).finished();
   planner.notifyAppliedControl(applied);
@@ -123,7 +130,7 @@ TEST(PlannerWarmStart, StopReturnsZeroAndResetsNextSeed) {
   neupan_uav::PlannerConfig config;
   config.collision_threshold = 0.2;
   config.robot.body_half_extent = Eigen::Vector3d::Zero();
-  neupan_uav::Planner planner(config);
+  neupan_uav::Planner planner(buildConfig(std::move(config)));
   const neupan_uav::Control applied =
       (neupan_uav::Control() << -1.0, 0.1, 0.2, 0.3).finished();
   planner.notifyAppliedControl(applied);
@@ -143,7 +150,7 @@ TEST(PlannerWarmStart, StopReturnsZeroAndResetsNextSeed) {
 }
 
 TEST(PlannerWarmStart, StaleAndInvalidInputsDoNotResetSeed) {
-  neupan_uav::Planner planner(neupan_uav::PlannerConfig{});
+  neupan_uav::Planner planner(buildConfig());
   const neupan_uav::Control applied =
       (neupan_uav::Control() << 0.7, 0.6, 0.5, 0.4).finished();
   planner.notifyAppliedControl(applied);

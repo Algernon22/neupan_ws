@@ -9,6 +9,7 @@
 
 #include <Eigen/Dense>
 
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -69,5 +70,26 @@ struct PlannerConfig {
   InitialPathConfig initial_path;
   PanConfig pan;
 };
+
+struct UavDynamicsConfig {
+  Control max_acceleration =
+      Control::Constant(std::numeric_limits<double>::infinity());
+  Eigen::Vector3d velocity_time_constant =
+      Eigen::Vector3d(0.35, 0.35, 0.45);
+  Eigen::Vector3d velocity_gain = Eigen::Vector3d::Ones();
+  double yaw_rate_time_constant = 0.30;
+  double yaw_rate_gain = 1.0;
+  double velocity_weight_scale = 0.35;
+};
+
+struct UavPlannerConfigSpec {
+  // Contains only fields that users configure directly. Derived planner,
+  // PAN, DUNE, and NRMP fields are populated by buildUavPlannerConfig().
+  PlannerConfig planner;
+  UavDynamicsConfig dynamics;
+  double state_weight_gain = 1.0;
+};
+
+PlannerConfig buildUavPlannerConfig(UavPlannerConfigSpec spec);
 
 }  // namespace neupan_uav

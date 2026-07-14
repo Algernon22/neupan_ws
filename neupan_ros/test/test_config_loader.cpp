@@ -36,8 +36,6 @@ TEST(ConfigLoader, LoadsCurrentPlannerYamlShape) {
   EXPECT_EQ(config.pan.iter_num, 1);
   EXPECT_EQ(config.pan.dune_max_num, 160);
   EXPECT_EQ(config.pan.nrmp_max_num, 20);
-  EXPECT_EQ(config.pan.point_flow.dune_max_num, 160U);
-  EXPECT_EQ(config.preselect.max_points, 160U);
   EXPECT_NEAR(config.pan.p_u, 1.5, 1e-12);
   EXPECT_NEAR(config.pan.eta, 6.0, 1e-12);
   EXPECT_NEAR(config.pan.d_min, 0.8, 1e-12);

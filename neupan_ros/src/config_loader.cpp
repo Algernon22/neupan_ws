@@ -4,11 +4,10 @@
 
 #include <yaml-cpp/yaml.h>
 
-#include <unsupported/Eigen/MatrixFunctions>
-
 #include <algorithm>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 namespace neupan_ros {
 
@@ -45,53 +44,8 @@ neupan_uav::Control control4(const YAML::Node& node, const std::string& key,
   return out;
 }
 
-struct RobotRuntimeConfig {
-  neupan_uav::Control max_acce =
-      neupan_uav::Control::Constant(std::numeric_limits<double>::infinity());
-  Eigen::Vector3d tau_velocity = Eigen::Vector3d(0.35, 0.35, 0.45);
-  Eigen::Vector3d gain_velocity = Eigen::Vector3d::Ones();
-  double tau_yaw_rate = 0.30;
-  double gain_yaw_rate = 1.0;
-  double velocity_weight_scale = 0.35;
-};
-
-Eigen::MatrixXd continuousA(const RobotRuntimeConfig& robot) {
-  Eigen::MatrixXd A = Eigen::MatrixXd::Zero(8, 8);
-  A(0, 4) = 1.0;
-  A(1, 5) = 1.0;
-  A(2, 6) = 1.0;
-  A(3, 7) = 1.0;
-  for (int i = 0; i < 3; ++i) {
-    A(4 + i, 4 + i) = -1.0 / robot.tau_velocity(i);
-  }
-  A(7, 7) = -1.0 / robot.tau_yaw_rate;
-  return A;
-}
-
-Eigen::MatrixXd continuousB(const RobotRuntimeConfig& robot) {
-  Eigen::MatrixXd B = Eigen::MatrixXd::Zero(8, 4);
-  for (int i = 0; i < 3; ++i) {
-    B(4 + i, i) = robot.gain_velocity(i) / robot.tau_velocity(i);
-  }
-  B(7, 3) = robot.gain_yaw_rate / robot.tau_yaw_rate;
-  return B;
-}
-
-void discretizeDynamics(const RobotRuntimeConfig& robot, double dt,
-                        Eigen::MatrixXd& A, Eigen::MatrixXd& B,
-                        Eigen::VectorXd& C) {
-  const Eigen::MatrixXd Ac = continuousA(robot);
-  const Eigen::MatrixXd Bc = continuousB(robot);
-  Eigen::MatrixXd aug = Eigen::MatrixXd::Zero(12, 12);
-  aug.block(0, 0, 8, 8) = Ac;
-  aug.block(0, 8, 8, 4) = Bc;
-  const Eigen::MatrixXd expm = (aug * dt).exp();
-  A = expm.block(0, 0, 8, 8);
-  B = expm.block(0, 8, 8, 4);
-  C = Eigen::VectorXd::Zero(8);
-}
-
-void loadRobot(const YAML::Node& root, neupan_uav::PlannerConfig& config) {
+void loadRobot(const YAML::Node& root, neupan_uav::PlannerConfig& config,
+               neupan_uav::UavDynamicsConfig& dynamics) {
   const YAML::Node robot = root["robot"];
   if (!robot) return;
   const double length = scalar<double>(robot, "length", 2.0 * config.robot.body_half_extent(0));
@@ -102,28 +56,17 @@ void loadRobot(const YAML::Node& root, neupan_uav::PlannerConfig& config) {
                       std::max(0.0, height * 0.5));
   config.robot.max_control =
       control4(robot, "max_speed", config.robot.max_control);
-}
-
-RobotRuntimeConfig loadRobotRuntime(const YAML::Node& root) {
-  RobotRuntimeConfig runtime;
-  const YAML::Node robot = root["robot"];
-  if (!robot) return runtime;
-  runtime.max_acce = control4(robot, "max_acce", runtime.max_acce);
-  runtime.tau_velocity =
-      vec3(robot, "tau_velocity", runtime.tau_velocity);
-  runtime.gain_velocity =
-      vec3(robot, "gain_velocity", runtime.gain_velocity);
-  runtime.tau_yaw_rate =
-      scalar<double>(robot, "tau_yaw_rate", runtime.tau_yaw_rate);
-  runtime.gain_yaw_rate =
-      scalar<double>(robot, "gain_yaw_rate", runtime.gain_yaw_rate);
-  runtime.velocity_weight_scale = scalar<double>(
-      robot, "velocity_weight_scale", runtime.velocity_weight_scale);
-  if ((runtime.tau_velocity.array() <= 0.0).any() ||
-      runtime.tau_yaw_rate <= 0.0) {
-    throw std::runtime_error("robot tau_velocity and tau_yaw_rate must be positive");
-  }
-  return runtime;
+  dynamics.max_acceleration =
+      control4(robot, "max_acce", dynamics.max_acceleration);
+  dynamics.velocity_time_constant =
+      vec3(robot, "tau_velocity", dynamics.velocity_time_constant);
+  dynamics.velocity_gain = vec3(robot, "gain_velocity", dynamics.velocity_gain);
+  dynamics.yaw_rate_time_constant =
+      scalar<double>(robot, "tau_yaw_rate", dynamics.yaw_rate_time_constant);
+  dynamics.yaw_rate_gain =
+      scalar<double>(robot, "gain_yaw_rate", dynamics.yaw_rate_gain);
+  dynamics.velocity_weight_scale = scalar<double>(
+      robot, "velocity_weight_scale", dynamics.velocity_weight_scale);
 }
 
 void loadInitialPath(const YAML::Node& root, neupan_uav::PlannerConfig& config) {
@@ -227,10 +170,6 @@ void loadPan(const YAML::Node& root, neupan_uav::PlannerConfig& config) {
       scalar<int>(pan, "dune_max_num", config.pan.dune_max_num);
   config.pan.nrmp_max_num =
       scalar<int>(pan, "nrmp_max_num", config.pan.nrmp_max_num);
-  config.pan.dune.select_num =
-      static_cast<std::size_t>(std::max(0, config.pan.nrmp_max_num));
-  config.pan.dune.dune_max_num =
-      static_cast<std::size_t>(std::max(0, config.pan.dune_max_num));
   config.pan.dune.select_nearest_ratio = scalar<double>(
       pan, "dune_select_nearest_ratio", config.pan.dune.select_nearest_ratio);
   config.pan.dune.select_temporal_ratio = scalar<double>(
@@ -239,9 +178,11 @@ void loadPan(const YAML::Node& root, neupan_uav::PlannerConfig& config) {
       pan, "dune_select_diversity_ratio", config.pan.dune.select_diversity_ratio);
 }
 
-void loadAdjust(const YAML::Node& root, neupan_uav::PlannerConfig& config) {
+void loadAdjust(const YAML::Node& root, neupan_uav::PlannerConfig& config,
+                double& state_weight_gain) {
   const YAML::Node adjust = root["adjust"];
   if (!adjust) return;
+  state_weight_gain = scalar<double>(adjust, "q_s", state_weight_gain);
   config.pan.p_u = scalar<double>(adjust, "p_u", config.pan.p_u);
   config.pan.eta = scalar<double>(adjust, "eta", config.pan.eta);
   config.pan.d_min = scalar<double>(adjust, "d_min", config.pan.d_min);
@@ -270,63 +211,6 @@ void loadAdjust(const YAML::Node& root, neupan_uav::PlannerConfig& config) {
   }
 }
 
-void finalizeDerivedConfig(neupan_uav::PlannerConfig& config,
-                           const RobotRuntimeConfig& runtime,
-                           const YAML::Node& root) {
-  config.pan.receding = config.receding;
-  config.pan.step_time = config.step_time;
-  config.pan.point_flow.receding = config.receding;
-  config.pan.point_flow.dt = config.step_time;
-  config.pan.point_flow.dune_max_num =
-      static_cast<std::size_t>(std::max(0, config.pan.dune_max_num));
-  config.pan.point_flow.body_half_extent = config.robot.body_half_extent;
-  config.preselect.max_points =
-      static_cast<std::size_t>(std::max(0, config.pan.dune_max_num));
-
-  config.pan.dune.receding = config.receding;
-  config.pan.dune.point_dim = 3;
-  config.pan.dune.dune_max_num =
-      static_cast<std::size_t>(std::max(0, config.pan.dune_max_num));
-  config.pan.dune.select_num =
-      static_cast<std::size_t>(std::max(0, config.pan.nrmp_max_num));
-  config.pan.dune.edge_dim = 6;
-  config.pan.dune.G.resize(6, 3);
-  config.pan.dune.G << 1.0F, 0.0F, 0.0F,
-      -1.0F, 0.0F, 0.0F,
-      0.0F, 1.0F, 0.0F,
-      0.0F, -1.0F, 0.0F,
-      0.0F, 0.0F, 1.0F,
-      0.0F, 0.0F, -1.0F;
-  config.pan.dune.h.resize(6);
-  config.pan.dune.h << static_cast<float>(config.robot.body_half_extent(0)),
-      static_cast<float>(config.robot.body_half_extent(0)),
-      static_cast<float>(config.robot.body_half_extent(1)),
-      static_cast<float>(config.robot.body_half_extent(1)),
-      static_cast<float>(config.robot.body_half_extent(2)),
-      static_cast<float>(config.robot.body_half_extent(2));
-  config.pan.has_dune_config = config.pan.dune_max_num > 0;
-
-  config.pan.nrmp.receding = config.receding;
-  config.pan.nrmp.state_dim = 8;
-  config.pan.nrmp.control_dim = 4;
-  config.pan.nrmp.geom_dim = 3;
-  config.pan.nrmp.point_dim = 3;
-  config.pan.nrmp.max_num = config.pan.nrmp_max_num;
-  config.pan.nrmp.no_obs = config.pan.nrmp_max_num <= 0;
-  discretizeDynamics(runtime, config.step_time, config.pan.nrmp.dynamics_A,
-                     config.pan.nrmp.dynamics_B, config.pan.nrmp.dynamics_C);
-  config.pan.nrmp.speed_bound = config.robot.max_control;
-  config.pan.nrmp.acce_bound = runtime.max_acce * config.step_time;
-  config.pan.nrmp.tracking_speed_bound = config.robot.max_control.cwiseAbs();
-  config.pan.has_nrmp_config = config.pan.nrmp_max_num > 0;
-
-  const YAML::Node adjust = root["adjust"];
-  const double q_s = adjust ? scalar<double>(adjust, "q_s", 1.0) : 1.0;
-  config.pan.state_weights = Eigen::VectorXd::Ones(8);
-  config.pan.state_weights.tail<4>().setConstant(
-      q_s * runtime.velocity_weight_scale);
-}
-
 }  // namespace
 
 LoadedPlannerConfig loadPlannerConfig(const std::string& yaml_path) {
@@ -335,8 +219,8 @@ LoadedPlannerConfig loadPlannerConfig(const std::string& yaml_path) {
     throw std::runtime_error("planner config root must be a YAML mapping");
   }
 
-  LoadedPlannerConfig loaded;
-  auto& config = loaded.planner;
+  neupan_uav::UavPlannerConfigSpec spec;
+  auto& config = spec.planner;
   config.collision_threshold =
       scalar<double>(root, "collision_threshold", config.collision_threshold);
   config.receding = scalar<int>(root, "receding", config.receding);
@@ -345,14 +229,15 @@ LoadedPlannerConfig loadPlannerConfig(const std::string& yaml_path) {
   config.arrive_threshold =
       scalar<double>(root, "arrive_threshold", config.arrive_threshold);
 
-  loadRobot(root, config);
-  const RobotRuntimeConfig runtime = loadRobotRuntime(root);
+  loadRobot(root, config, spec.dynamics);
   loadInitialPath(root, config);
   loadPreselect(root, config);
   loadFarfieldGuide(root, config);
   loadPan(root, config);
-  loadAdjust(root, config);
-  finalizeDerivedConfig(config, runtime, root);
+  loadAdjust(root, config, spec.state_weight_gain);
+
+  LoadedPlannerConfig loaded;
+  loaded.planner = neupan_uav::buildUavPlannerConfig(std::move(spec));
   return loaded;
 }
 

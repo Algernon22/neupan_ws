@@ -32,15 +32,27 @@ ObstaclePreselectorConfig makePreselectorConfig(const PlannerConfig& config) {
 }
 
 PanConfig makePanConfig(const PlannerConfig& config) {
-  PanConfig pan = config.pan;
-  pan.receding = config.receding;
-  pan.step_time = config.step_time;
-  if (pan.point_flow.receding == 0) pan.point_flow.receding = config.receding;
-  pan.point_flow.dt = config.step_time;
-  if (pan.point_flow.dune_max_num == 0 && pan.dune_max_num > 0) {
-    pan.point_flow.dune_max_num = static_cast<std::size_t>(pan.dune_max_num);
+  const PanConfig& pan = config.pan;
+  if (pan.receding != config.receding) {
+    throw std::invalid_argument(
+        "PanConfig::receding must match PlannerConfig::receding");
   }
-  pan.point_flow.body_half_extent = config.robot.body_half_extent;
+  if (pan.step_time != config.step_time) {
+    throw std::invalid_argument(
+        "PanConfig::step_time must match PlannerConfig::step_time");
+  }
+  if (pan.point_flow.receding != config.receding) {
+    throw std::invalid_argument(
+        "PointFlowConfig::receding must match PlannerConfig::receding");
+  }
+  if (pan.point_flow.dt != config.step_time) {
+    throw std::invalid_argument(
+        "PointFlowConfig::dt must match PlannerConfig::step_time");
+  }
+  if (!pan.point_flow.body_half_extent.isApprox(config.robot.body_half_extent)) {
+    throw std::invalid_argument(
+        "PointFlowConfig::body_half_extent must match RobotModelConfig");
+  }
   return pan;
 }
 

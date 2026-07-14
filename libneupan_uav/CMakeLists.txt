@@ -89,6 +89,7 @@ if(NEUPAN_UAV_BUILD_TESTS)
   find_package(GTest REQUIRED)
 
   foreach(t
+      test_config
       test_warm_start
       test_farfield_guide
       test_obstacle_preselector

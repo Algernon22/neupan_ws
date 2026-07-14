@@ -4,50 +4,9 @@
 #include <gtest/gtest.h>
 
 #include <numeric>
+#include <utility>
 
 namespace {
-
-neupan_uav::NrmpConfig basicNrmpConfig(bool with_obstacles) {
-  neupan_uav::NrmpConfig config;
-  config.receding = 3;
-  config.state_dim = 4;
-  config.control_dim = 4;
-  config.geom_dim = 4;
-  config.point_dim = 3;
-  config.max_num = with_obstacles ? 1 : 0;
-  config.no_obs = !with_obstacles;
-  config.enable_control_smoothing = true;
-  config.dynamics_A = Eigen::Matrix4d::Identity();
-  config.dynamics_B = Eigen::Matrix4d::Identity() * 0.1;
-  config.dynamics_C = Eigen::Vector4d::Zero();
-  config.speed_bound = Eigen::Vector4d::Constant(2.0);
-  config.acce_bound = Eigen::Vector4d::Constant(10.0);
-  config.tracking_speed_bound = Eigen::Vector4d::Constant(
-      std::numeric_limits<double>::infinity());
-  return config;
-}
-
-neupan_uav::DunePostprocessorConfig basicDuneConfig() {
-  neupan_uav::DunePostprocessorConfig config;
-  config.receding = 3;
-  config.point_dim = 3;
-  config.edge_dim = 6;
-  config.dune_max_num = 4;
-  config.select_num = 1;
-  config.select_nearest_ratio = 1.0;
-  config.select_temporal_ratio = 0.0;
-  config.select_diversity_ratio = 0.0;
-  config.G.resize(6, 3);
-  config.G << 1.0F, 0.0F, 0.0F,
-              -1.0F, 0.0F, 0.0F,
-              0.0F, 1.0F, 0.0F,
-              0.0F, -1.0F, 0.0F,
-              0.0F, 0.0F, 1.0F,
-              0.0F, 0.0F, -1.0F;
-  config.h.resize(6);
-  config.h << 0.5F, 0.5F, 0.5F, 0.5F, 0.5F, 0.5F;
-  return config;
-}
 
 neupan_uav::RknnMetadata mockMetadata() {
   neupan_uav::RknnMetadata metadata;
@@ -61,6 +20,12 @@ neupan_uav::RknnMetadata mockMetadata() {
   metadata.scene_scale = Eigen::Vector3d::Ones();
   metadata.clearance_scale = Eigen::Vector3d::Ones();
   return metadata;
+}
+
+neupan_uav::PlannerConfig buildConfig(neupan_uav::PlannerConfig config = {}) {
+  neupan_uav::UavPlannerConfigSpec spec;
+  spec.planner = std::move(config);
+  return neupan_uav::buildUavPlannerConfig(std::move(spec));
 }
 
 neupan_uav::PlannerConfig fullPlannerConfig(bool with_obstacles) {
@@ -78,24 +43,16 @@ neupan_uav::PlannerConfig fullPlannerConfig(bool with_obstacles) {
   config.preselect.corridor_margin = Eigen::Vector3d::Constant(10.0);
   config.pan.iter_num = 2;
   config.pan.iter_threshold = 1.0e-9;
-  config.pan.nrmp = basicNrmpConfig(with_obstacles);
-  config.pan.has_nrmp_config = true;
-  config.pan.nrmp_max_num = with_obstacles ? 1 : 0;
+  config.pan.nrmp_max_num = 1;
   config.pan.dune_max_num = with_obstacles ? 4 : 0;
-  config.pan.point_flow.receding = config.receding;
-  config.pan.point_flow.dune_max_num =
-      static_cast<std::size_t>(config.pan.dune_max_num);
-  config.pan.point_flow.body_half_extent = config.robot.body_half_extent;
   config.pan.p_u = 1.0;
   config.pan.bk = 0.01;
   config.pan.smooth_u0 = 25.0;
   config.pan.smooth_du = 0.0;
   if (with_obstacles) {
-    config.pan.dune = basicDuneConfig();
-    config.pan.has_dune_config = true;
     config.pan.rknn_mode = neupan_uav::RknnRunnerMode::kMock;
   }
-  return config;
+  return buildConfig(std::move(config));
 }
 
 }  // namespace
@@ -104,6 +61,7 @@ TEST(PlannerReplaySkeleton, EmptyAndStaticObstacleScenariosAreDeterministic) {
   neupan_uav::PlannerConfig config;
   config.placeholder_command << 0.2, -0.1, 0.05, 0.01;
   config.collision_threshold = 0.0;
+  config = buildConfig(std::move(config));
   neupan_uav::Planner planner(config);
 
   neupan_uav::PlannerInput empty_input;
@@ -149,6 +107,7 @@ TEST(PlannerStage6, InitialPathBuildsReferenceTrajectoryAndDesiredCommand) {
       Eigen::Vector4d(1.0, 0.0, 1.0, 0.0),
       Eigen::Vector4d(1.0, 1.0, 1.0, 1.5707963267948966),
   };
+  config = buildConfig(std::move(config));
   neupan_uav::Planner planner(config);
 
   neupan_uav::PlannerInput input;
@@ -195,6 +154,7 @@ TEST(PlannerStage75, FarfieldGuideAppliesOncePerForwardCycle) {
   config.farfield_guide.offset_speed_gain = 1.0;
   config.farfield_guide.offset_alpha = 0.25;
 
+  config = buildConfig(std::move(config));
   neupan_uav::Planner planner(config);
   neupan_uav::PlannerInput input;
   input.state = Eigen::Vector4d(0.0, 0.0, 2.0, 0.0);
@@ -221,6 +181,7 @@ TEST(PlannerStage6, InitialPathArrivalLatchesUntilReset) {
       Eigen::Vector4d(0.0, 0.0, 0.0, 0.0),
       Eigen::Vector4d(1.0, 0.0, 0.0, 0.0),
   };
+  config = buildConfig(std::move(config));
   neupan_uav::Planner planner(config);
 
   neupan_uav::PlannerInput input;
