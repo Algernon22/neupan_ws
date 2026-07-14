@@ -6,13 +6,8 @@ neupan_uav_node:
     dune_rknn_metadata_file: "../models/uav_robot_default/obs_point_net_T25_N160_fp.rknn.metadata.json"
     dune_rknn_core_mask: "CORE_0_1"
 
-    map_frame: "camera_init"
-
     state_topic: "/Odometry"
     pointcloud_topic: "/cloud_registered_body"
-    cmd_vel_topic: "/neupan/planner/cmd_vel"
-    applied_cmd_topic: "/neupan/control/applied_cmd_vel"
-    planner_arrived_topic: "/neupan/planner/arrived"
 
     update_rate: 20.0
     planner_rate: 10.0
@@ -25,17 +20,13 @@ neupan_uav_node:
 
     self_filter_margin_xyz: [0.02, 0.02, 0.02]
 
-    profile_planner: false
+    profile_planner: true
 
 px4_control:
   ros__parameters:
-    planner_cmd_topic: "/neupan/planner/cmd_vel"
-    applied_cmd_topic: "/neupan/control/applied_cmd_vel"
-    planner_arrived_topic: "/neupan/planner/arrived"
     mavros_state_topic: "/mavros/state"
     state_odom_topic: "/mavros/local_position/odom"
     mavros_setpoint_velocity_topic: "/mavros/setpoint_velocity/cmd_vel"
-    setpoint_frame: "camera_init"
     heartbeat_rate: 20.0
     command_timeout: 0.30
     state_odom_timeout: 0.3

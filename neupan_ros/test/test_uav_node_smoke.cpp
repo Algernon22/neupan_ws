@@ -134,16 +134,22 @@ struct UavHarness {
     arrived_topic = prefix + "/arrived";
 
     rclcpp::NodeOptions options;
+    options.arguments({
+        "--ros-args",
+        "-r",
+        "neupan/planner/cmd_vel:=" + cmd_topic,
+        "-r",
+        "neupan/planner/arrived:=" + arrived_topic,
+        "-r",
+        "neupan/control/applied_cmd_vel:=" + applied_topic,
+    });
     options.parameter_overrides({
         rclcpp::Parameter("robot_config_dir", testConfigPath("")),
         rclcpp::Parameter("planner_config_file",
                           testDataPath("planner_smoke.yaml")),
-        rclcpp::Parameter("map_frame", "camera_init"),
+        rclcpp::Parameter("command_frame", "camera_init"),
         rclcpp::Parameter("state_topic", state_topic),
         rclcpp::Parameter("pointcloud_topic", cloud_topic),
-        rclcpp::Parameter("applied_cmd_topic", applied_topic),
-        rclcpp::Parameter("cmd_vel_topic", cmd_topic),
-        rclcpp::Parameter("planner_arrived_topic", arrived_topic),
         rclcpp::Parameter("update_rate", update_rate),
         rclcpp::Parameter("planner_rate", planner_rate),
         rclcpp::Parameter("max_state_age_ms", 1000.0),

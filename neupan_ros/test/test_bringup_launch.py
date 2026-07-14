@@ -21,6 +21,7 @@ def configured_context(**values):
     context = LaunchContext()
     defaults = {
         "log_level": "info",
+        "command_frame": "camera_init",
         "planner_config_file": "__from_robot_yaml__",
         "dune_rknn_metadata_file": "__from_robot_yaml__",
         "dune_rknn_core_mask": "__from_robot_yaml__",
@@ -49,7 +50,7 @@ class BringupLaunchTest(unittest.TestCase):
         planner_node, _ = module._launch_setup(context)
 
         self.assertEqual(parameter_override_keys(planner_node, context),
-                         {"robot_config_dir"})
+                         {"robot_config_dir", "command_frame"})
 
     def test_explicit_arguments_override_robot_yaml(self):
         module = load_launch_module()
@@ -66,6 +67,7 @@ class BringupLaunchTest(unittest.TestCase):
             parameter_override_keys(planner_node, context),
             {
                 "robot_config_dir",
+                "command_frame",
                 "planner_config_file",
                 "dune_rknn_metadata_file",
                 "dune_rknn_core_mask",
@@ -79,8 +81,10 @@ class BringupLaunchTest(unittest.TestCase):
 
         planner_node, _ = module._launch_setup(context)
 
-        self.assertEqual(parameter_override_keys(planner_node, context),
-                         {"robot_config_dir", "dune_rknn_metadata_file"})
+        self.assertEqual(
+            parameter_override_keys(planner_node, context),
+            {"robot_config_dir", "command_frame", "dune_rknn_metadata_file"},
+        )
 
 
 if __name__ == "__main__":

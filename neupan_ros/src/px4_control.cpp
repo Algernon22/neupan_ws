@@ -1,5 +1,6 @@
 #include "neupan_ros/px4_control.hpp"
 
+#include "internal_interfaces.hpp"
 #include "neupan_ros/adapters.hpp"
 
 #include <algorithm>
@@ -24,17 +25,12 @@ std::string upper(std::string value) {
 
 Px4ControlNode::Px4ControlNode(const rclcpp::NodeOptions& options)
     : rclcpp::Node("px4_control", options) {
-  declare_parameter<std::string>("planner_cmd_topic", "/neupan/planner/cmd_vel");
   declare_parameter<std::string>("mavros_state_topic", "/mavros/state");
   declare_parameter<std::string>("state_odom_topic",
                                  "/mavros/local_position/odom");
   declare_parameter<std::string>("mavros_setpoint_velocity_topic",
                                  "/mavros/setpoint_velocity/cmd_vel");
-  declare_parameter<std::string>("applied_cmd_topic",
-                                 "/neupan/control/applied_cmd_vel");
-  declare_parameter<std::string>("planner_arrived_topic",
-                                 "/neupan/planner/arrived");
-  declare_parameter<std::string>("setpoint_frame", "camera_init");
+  declare_parameter<std::string>("command_frame", internal::kDefaultCommandFrame);
   declare_parameter<double>("heartbeat_rate", 20.0);
   declare_parameter<double>("command_timeout", 0.30);
   declare_parameter<double>("state_odom_timeout", 0.30);
@@ -46,15 +42,11 @@ Px4ControlNode::Px4ControlNode(const rclcpp::NodeOptions& options)
   declare_parameter<double>("takeoff_phase_max_climb_speed", 2.0);
   declare_parameter<std::string>("control_debug_topic", "/neupan/control_debug");
 
-  planner_cmd_topic_ = get_parameter("planner_cmd_topic").as_string();
   mavros_state_topic_ = get_parameter("mavros_state_topic").as_string();
   state_odom_topic_ = get_parameter("state_odom_topic").as_string();
   setpoint_topic_ =
       get_parameter("mavros_setpoint_velocity_topic").as_string();
-  applied_cmd_topic_ = get_parameter("applied_cmd_topic").as_string();
-  planner_arrived_topic_ =
-      get_parameter("planner_arrived_topic").as_string();
-  setpoint_frame_ = get_parameter("setpoint_frame").as_string();
+  command_frame_ = get_parameter("command_frame").as_string();
   control_debug_topic_ = get_parameter("control_debug_topic").as_string();
   command_timeout_s_ = std::max(0.01, get_parameter("command_timeout").as_double());
   state_odom_timeout_s_ =
@@ -77,17 +69,17 @@ Px4ControlNode::Px4ControlNode(const rclcpp::NodeOptions& options)
 
   setpoint_pub_ =
       create_publisher<geometry_msgs::msg::TwistStamped>(setpoint_topic_, 10);
-  applied_cmd_pub_ =
-      create_publisher<geometry_msgs::msg::TwistStamped>(applied_cmd_topic_, 10);
+  applied_cmd_pub_ = create_publisher<geometry_msgs::msg::TwistStamped>(
+      internal::kAppliedCommandTopic, 10);
   debug_pub_ = create_publisher<std_msgs::msg::String>(control_debug_topic_, 10);
 
   cmd_sub_ = create_subscription<geometry_msgs::msg::TwistStamped>(
-      planner_cmd_topic_, 10,
+      internal::kPlannerCommandTopic, 10,
       [this](geometry_msgs::msg::TwistStamped::SharedPtr msg) {
         cmdCallback(msg);
       });
   arrived_sub_ = create_subscription<std_msgs::msg::Bool>(
-      planner_arrived_topic_, 10,
+      internal::kPlannerArrivedTopic, 10,
       [this](std_msgs::msg::Bool::SharedPtr msg) {
         plannerArrivedCallback(msg);
       });
@@ -153,13 +145,13 @@ bool Px4ControlNode::topicFresh(
 }
 
 bool Px4ControlNode::plannerCommandFrameValid(const std::string& frame_id) {
-  if (frame_id.empty() || frame_id == setpoint_frame_) {
+  if (frame_id.empty() || frame_id == command_frame_) {
     last_warned_cmd_frame_.clear();
     return true;
   }
   if (frame_id != last_warned_cmd_frame_) {
     RCLCPP_WARN(get_logger(), "Ignoring planner command in frame '%s'; expected '%s'",
-                frame_id.c_str(), setpoint_frame_.c_str());
+                frame_id.c_str(), command_frame_.c_str());
     last_warned_cmd_frame_ = frame_id;
   }
   return false;
@@ -231,7 +223,7 @@ void Px4ControlNode::publishDebugTopic(const ControlDecision& decision) {
 
 void Px4ControlNode::publishSetpoint(const neupan_uav::Control& control) {
   const auto msg =
-      controlToTwistStamped(control, get_clock()->now(), setpoint_frame_);
+      controlToTwistStamped(control, get_clock()->now(), command_frame_);
   setpoint_pub_->publish(msg);
   applied_cmd_pub_->publish(msg);
 }

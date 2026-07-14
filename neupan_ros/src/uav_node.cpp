@@ -1,5 +1,6 @@
 #include "neupan_ros/uav_node.hpp"
 
+#include "internal_interfaces.hpp"
 #include "neupan_ros/adapters.hpp"
 #include "neupan_uav/rknn_runner.hpp"
 
@@ -21,14 +22,9 @@ UavNode::UavNode(const rclcpp::NodeOptions& options)
   declare_parameter<std::string>("dune_rknn_metadata_file", "");
   declare_parameter<std::string>("dune_rknn_core_mask", "CORE_0_1");
   declare_parameter<bool>("dune_rknn_require_device", true);
-  declare_parameter<std::string>("map_frame", "camera_init");
+  declare_parameter<std::string>("command_frame", internal::kDefaultCommandFrame);
   declare_parameter<std::string>("state_topic", "/Odometry");
   declare_parameter<std::string>("pointcloud_topic", "/cloud_registered_body");
-  declare_parameter<std::string>("cmd_vel_topic", "/neupan/planner/cmd_vel");
-  declare_parameter<std::string>("applied_cmd_topic",
-                                 "/neupan/control/applied_cmd_vel");
-  declare_parameter<std::string>("planner_arrived_topic",
-                                 "/neupan/planner/arrived");
   declare_parameter<double>("update_rate", 20.0);
   declare_parameter<double>("planner_rate", 10.0);
   declare_parameter<double>("max_state_age_ms", 150.0);
@@ -46,12 +42,9 @@ UavNode::UavNode(const rclcpp::NodeOptions& options)
   const std::string planner_path = resolvePath(config_dir, planner_file);
   loaded_config_ = loadPlannerConfig(planner_path);
 
-  map_frame_ = get_parameter("map_frame").as_string();
+  command_frame_ = get_parameter("command_frame").as_string();
   state_topic_ = get_parameter("state_topic").as_string();
   pointcloud_topic_ = get_parameter("pointcloud_topic").as_string();
-  cmd_vel_topic_ = get_parameter("cmd_vel_topic").as_string();
-  applied_cmd_topic_ = get_parameter("applied_cmd_topic").as_string();
-  planner_arrived_topic_ = get_parameter("planner_arrived_topic").as_string();
   update_rate_ = std::max(1.0, get_parameter("update_rate").as_double());
   planner_rate_ = std::max(1.0, get_parameter("planner_rate").as_double());
   max_state_age_s_ =
@@ -119,9 +112,10 @@ UavNode::UavNode(const rclcpp::NodeOptions& options)
   RCLCPP_INFO(get_logger(), "Loaded C++ NeuPAN planner config: %s",
               planner_path.c_str());
 
-  cmd_pub_ =
-      create_publisher<geometry_msgs::msg::TwistStamped>(cmd_vel_topic_, 10);
-  arrived_pub_ = create_publisher<std_msgs::msg::Bool>(planner_arrived_topic_, 10);
+  cmd_pub_ = create_publisher<geometry_msgs::msg::TwistStamped>(
+      internal::kPlannerCommandTopic, 10);
+  arrived_pub_ =
+      create_publisher<std_msgs::msg::Bool>(internal::kPlannerArrivedTopic, 10);
   state_sub_ = create_subscription<nav_msgs::msg::Odometry>(
       state_topic_, rclcpp::SensorDataQoS(),
       [this](nav_msgs::msg::Odometry::SharedPtr msg) { stateCallback(msg); });
@@ -131,7 +125,7 @@ UavNode::UavNode(const rclcpp::NodeOptions& options)
         cloudCallback(msg);
       });
   applied_sub_ = create_subscription<geometry_msgs::msg::TwistStamped>(
-      applied_cmd_topic_, 10,
+      internal::kAppliedCommandTopic, 10,
       [this](geometry_msgs::msg::TwistStamped::SharedPtr msg) {
         appliedCmdCallback(msg);
       });
@@ -377,7 +371,7 @@ void UavNode::publishLoop() {
   if (!result.ready || !result.command.has_value()) return;
   const rclcpp::Time stamp(static_cast<int64_t>(result.generated_stamp_ns));
   const auto cmd =
-      controlToTwistStamped(*result.command, stamp, map_frame_);
+      controlToTwistStamped(*result.command, stamp, command_frame_);
   cmd_pub_->publish(cmd);
 
   std_msgs::msg::Bool arrived;

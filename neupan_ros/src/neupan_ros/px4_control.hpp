@@ -45,13 +45,10 @@ class Px4ControlNode final : public rclcpp::Node {
   void statusCallback(const mavros_msgs::msg::State::SharedPtr msg);
   void odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg);
 
-  std::string planner_cmd_topic_;
   std::string mavros_state_topic_;
   std::string state_odom_topic_;
   std::string setpoint_topic_;
-  std::string applied_cmd_topic_;
-  std::string planner_arrived_topic_;
-  std::string setpoint_frame_;
+  std::string command_frame_;
   std::string control_debug_topic_;
 
   double command_timeout_s_ = 0.30;

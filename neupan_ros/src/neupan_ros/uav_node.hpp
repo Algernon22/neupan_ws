@@ -75,12 +75,9 @@ class UavNode final : public rclcpp::Node {
   std::unique_ptr<neupan_uav::Planner> planner_;
   LoadedPlannerConfig loaded_config_;
 
-  std::string map_frame_ = "camera_init";
+  std::string command_frame_ = "camera_init";
   std::string state_topic_ = "/Odometry";
   std::string pointcloud_topic_ = "/cloud_registered_body";
-  std::string cmd_vel_topic_ = "/neupan/planner/cmd_vel";
-  std::string applied_cmd_topic_ = "/neupan/control/applied_cmd_vel";
-  std::string planner_arrived_topic_ = "/neupan/planner/arrived";
   double update_rate_ = 20.0;
   double planner_rate_ = 10.0;
   double max_state_age_s_ = 0.15;

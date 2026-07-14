@@ -85,7 +85,7 @@ bool twistNear(const geometry_msgs::msg::TwistStamped& msg, double vx,
 struct Px4Harness {
   explicit Px4Harness(const std::string& suffix, bool enable_takeoff) {
     const std::string prefix = topicPrefix(suffix);
-    planner_cmd_topic = prefix + "/planner_cmd";
+    command_topic = prefix + "/planner_cmd";
     state_topic = prefix + "/state";
     odom_topic = prefix + "/odom";
     setpoint_topic = prefix + "/setpoint";
@@ -94,13 +94,20 @@ struct Px4Harness {
     debug_topic = prefix + "/debug";
 
     rclcpp::NodeOptions options;
+    options.arguments({
+        "--ros-args",
+        "-r",
+        "neupan/planner/cmd_vel:=" + command_topic,
+        "-r",
+        "neupan/planner/arrived:=" + arrived_topic,
+        "-r",
+        "neupan/control/applied_cmd_vel:=" + applied_topic,
+    });
     options.parameter_overrides({
-        rclcpp::Parameter("planner_cmd_topic", planner_cmd_topic),
         rclcpp::Parameter("mavros_state_topic", state_topic),
         rclcpp::Parameter("state_odom_topic", odom_topic),
         rclcpp::Parameter("mavros_setpoint_velocity_topic", setpoint_topic),
-        rclcpp::Parameter("applied_cmd_topic", applied_topic),
-        rclcpp::Parameter("planner_arrived_topic", arrived_topic),
+        rclcpp::Parameter("command_frame", "camera_init"),
         rclcpp::Parameter("control_debug_topic", debug_topic),
         rclcpp::Parameter("heartbeat_rate", 40.0),
         rclcpp::Parameter("command_timeout", 1.0),
@@ -121,7 +128,7 @@ struct Px4Harness {
         odom_topic, rclcpp::SensorDataQoS());
     cmd_pub =
         io_node->create_publisher<geometry_msgs::msg::TwistStamped>(
-            planner_cmd_topic, 10);
+            command_topic, 10);
     arrived_pub =
         io_node->create_publisher<std_msgs::msg::Bool>(arrived_topic, 10);
 
@@ -153,7 +160,7 @@ struct Px4Harness {
     odom_pub->publish(odomAt(*io_node, altitude_m));
   }
 
-  std::string planner_cmd_topic;
+  std::string command_topic;
   std::string state_topic;
   std::string odom_topic;
   std::string setpoint_topic;

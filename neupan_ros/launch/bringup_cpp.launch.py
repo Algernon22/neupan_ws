@@ -17,12 +17,16 @@ def _launch_setup(context, *args, **kwargs):
     dune_rknn_metadata_file = LaunchConfiguration("dune_rknn_metadata_file")
     dune_rknn_core_mask = LaunchConfiguration("dune_rknn_core_mask")
     dune_rknn_require_device = LaunchConfiguration("dune_rknn_require_device")
+    command_frame = LaunchConfiguration("command_frame")
 
     pkg_share = FindPackageShare("neupan_ros")
     config_dir = PathJoinSubstitution([pkg_share, "config"])
     robot_yaml = PathJoinSubstitution([config_dir, "robot.yaml"])
 
     common_arguments = ["--ros-args", "--log-level", log_level]
+    shared_frame = {
+        "command_frame": command_frame,
+    }
     planner_overrides = {
         "robot_config_dir": config_dir,
     }
@@ -51,7 +55,7 @@ def _launch_setup(context, *args, **kwargs):
             name="neupan_uav_node",
             output="screen",
             emulate_tty=True,
-            parameters=[robot_yaml, planner_overrides],
+            parameters=[robot_yaml, planner_overrides, shared_frame],
             arguments=common_arguments,
         ),
         Node(
@@ -60,7 +64,7 @@ def _launch_setup(context, *args, **kwargs):
             name="px4_control",
             output="screen",
             emulate_tty=True,
-            parameters=[robot_yaml],
+            parameters=[robot_yaml, shared_frame],
             arguments=common_arguments,
         ),
     ]
@@ -70,6 +74,7 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription(
         [
             DeclareLaunchArgument("log_level", default_value="info"),
+            DeclareLaunchArgument("command_frame", default_value="camera_init"),
             DeclareLaunchArgument(
                 "planner_config_file", default_value=_USE_ROBOT_YAML
             ),
