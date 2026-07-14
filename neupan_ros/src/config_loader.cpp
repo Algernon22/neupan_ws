@@ -344,7 +344,6 @@ LoadedPlannerConfig loadPlannerConfig(const std::string& yaml_path) {
   config.ref_speed = scalar<double>(root, "ref_speed", config.ref_speed);
   config.arrive_threshold =
       scalar<double>(root, "arrive_threshold", config.arrive_threshold);
-  loaded.farfield_guide_present = static_cast<bool>(root["farfield_guide"]);
 
   loadRobot(root, config);
   const RobotRuntimeConfig runtime = loadRobotRuntime(root);

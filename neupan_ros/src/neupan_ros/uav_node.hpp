@@ -39,14 +39,11 @@ class UavNode final : public rclcpp::Node {
     neupan_uav::PointMatrix points_body = neupan_uav::emptyPointMatrix();
     double min_body_clearance = std::numeric_limits<double>::infinity();
     double receive_time_s = 0.0;
-    std::size_t raw_point_count = 0;
   };
 
   struct PlannerJob {
     LatestState state;
     LatestCloud cloud;
-    double state_age_s = 0.0;
-    double cloud_age_s = 0.0;
     std::optional<neupan_uav::Control> applied_control;
   };
 
@@ -98,7 +95,6 @@ class UavNode final : public rclcpp::Node {
   bool enable_takeoff_phase_ = true;
   double takeoff_phase_release_height_ = 1.9;
   bool takeoff_phase_done_ = false;
-  bool ignore_stop_flag_ = false;
   bool profile_planner_ = false;
   std::string last_profile_log_;
 
@@ -106,7 +102,6 @@ class UavNode final : public rclcpp::Node {
   std::optional<LatestState> latest_state_;
   std::optional<LatestCloud> latest_cloud_;
   std::optional<neupan_uav::Control> latest_applied_cmd_;
-  std::optional<std::uint64_t> latest_applied_cmd_stamp_ns_;
   PlannerResult latest_result_;
   bool stop_worker_ = false;
   std::thread planner_thread_;

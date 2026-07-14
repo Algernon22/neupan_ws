@@ -10,6 +10,9 @@ namespace neupan_ros {
 
 namespace {
 
+constexpr const char* kGold = "\033[38;2;255;215;0m";
+constexpr const char* kReset = "\033[0m";
+
 std::string upper(std::string value) {
   for (char& c : value) {
     c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
@@ -210,10 +213,7 @@ ControlInputs Px4ControlNode::buildInputs() {
     inputs.has_altitude = true;
     inputs.altitude_m = latest_odom_->pose.pose.position.z;
   }
-  inputs.planner_cmd_gap_sec = std::numeric_limits<double>::infinity();
   if (latest_cmd_stamp_ns_.has_value()) {
-    inputs.planner_cmd_gap_sec =
-        std::max(0.0, sourceAgeSec(*latest_cmd_stamp_ns_, now_s));
     inputs.planner_cmd_fresh =
         topicFresh(latest_cmd_stamp_ns_, command_timeout_s_, now_s);
   }
@@ -252,9 +252,9 @@ void Px4ControlNode::timerCallback() {
   publishDebugTopic(next);
 
   if (previous != next) {
-    RCLCPP_INFO(get_logger(), "Control phase=%s policy=%s reason=%s",
+    RCLCPP_INFO(get_logger(), "%sControl phase=%s policy=%s reason=%s%s", kGold,
                 toString(next.phase), toString(next.policy),
-                next.reason.c_str());
+                next.reason.c_str(), kReset);
   }
 
   if (next.policy == ControlPolicy::kZeroHold) {

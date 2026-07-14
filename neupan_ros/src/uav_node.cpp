@@ -42,7 +42,6 @@ UavNode::UavNode(const rclcpp::NodeOptions& options)
   declare_parameter<bool>("enable_takeoff_phase", true);
   declare_parameter<double>("takeoff_phase_height", 1.8);
   declare_parameter<double>("takeoff_phase_hysteresis", 0.1);
-  declare_parameter<bool>("ignore_stop_flag", false);
   declare_parameter<bool>("profile_planner", false);
 
   const std::string config_dir = get_parameter("robot_config_dir").as_string();
@@ -80,7 +79,6 @@ UavNode::UavNode(const rclcpp::NodeOptions& options)
   takeoff_phase_release_height_ =
       std::max(0.0, get_parameter("takeoff_phase_height").as_double()) +
       std::max(0.0, get_parameter("takeoff_phase_hysteresis").as_double());
-  ignore_stop_flag_ = get_parameter("ignore_stop_flag").as_bool();
   profile_planner_ = get_parameter("profile_planner").as_bool();
 
   const double horizon =
@@ -205,8 +203,6 @@ std::optional<UavNode::LatestCloud> UavNode::processCloud(
   LatestCloud cloud;
   cloud.stamp_ns = stamp_ns;
   cloud.receive_time_s = nowSec();
-  cloud.raw_point_count =
-      static_cast<std::size_t>(msg.width) * static_cast<std::size_t>(msg.height);
 
   if (points.cols() == 0) return cloud;
   if (roi_.has_value()) {
@@ -297,7 +293,6 @@ void UavNode::appliedCmdCallback(
     const geometry_msgs::msg::TwistStamped::SharedPtr msg) {
   std::lock_guard<std::mutex> lock(data_mutex_);
   latest_applied_cmd_ = twistStampedToControl(*msg);
-  latest_applied_cmd_stamp_ns_ = stampToNanoseconds(msg->header.stamp);
 }
 
 std::optional<UavNode::PlannerJob> UavNode::snapshotPlannerInputs() {
@@ -331,8 +326,6 @@ std::optional<UavNode::PlannerJob> UavNode::snapshotPlannerInputs() {
   PlannerJob job;
   job.state = *latest_state_;
   job.cloud = *latest_cloud_;
-  job.state_age_s = state_age;
-  job.cloud_age_s = cloud_age;
   job.applied_control = latest_applied_cmd_;
   return job;
 }
@@ -354,11 +347,7 @@ UavNode::PlannerResult UavNode::runPlannerOnce(const PlannerJob& job) {
   result.reason = out.reason;
   result.generated_stamp_ns = nowNanoseconds();
 
-  if (ignore_stop_flag_ && out.stop) {
-    result.command = out.command;
-    result.ready = true;
-    result.reason = "planner_ok";
-  } else if (out.ready) {
+  if (out.ready) {
     result.command = out.command;
   }
 

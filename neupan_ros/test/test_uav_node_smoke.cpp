@@ -149,7 +149,6 @@ struct UavHarness {
         rclcpp::Parameter("max_state_age_ms", 1000.0),
         rclcpp::Parameter("max_cloud_age_ms", 1000.0),
         rclcpp::Parameter("enable_takeoff_phase", false),
-        rclcpp::Parameter("ignore_stop_flag", true),
         rclcpp::Parameter("profile_planner", true),
     });
 

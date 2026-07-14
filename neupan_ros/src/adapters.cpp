@@ -89,20 +89,10 @@ OdomStates odometryToStates(const nav_msgs::msg::Odometry& msg) {
   const auto& pos = msg.pose.pose.position;
   const auto& ori = msg.pose.pose.orientation;
   const Rpy rpy = quaternionToRpy(ori);
-  const Eigen::Matrix3d rot = quaternionToRotationMatrix(ori);
-
-  Eigen::Vector3d linear_body;
-  linear_body << finiteOrZero(msg.twist.twist.linear.x),
-      finiteOrZero(msg.twist.twist.linear.y),
-      finiteOrZero(msg.twist.twist.linear.z);
-  const Eigen::Vector3d linear_world = rot * linear_body;
 
   OdomStates out;
   out.state6 << finiteOrZero(pos.x), finiteOrZero(pos.y), finiteOrZero(pos.z),
       rpy.roll, rpy.pitch, rpy.yaw;
-  out.state4 << out.state6(0), out.state6(1), out.state6(2), out.state6(5);
-  out.twist4 << linear_world(0), linear_world(1), linear_world(2),
-      finiteOrZero(msg.twist.twist.angular.z);
   return out;
 }
 
@@ -151,18 +141,6 @@ neupan_uav::PointMatrix pointsBodyToWorld(
   const Eigen::Matrix3d rot =
       rpyToRotation(state6(3), state6(4), state6(5));
   return (rot * points_body).colwise() + position;
-}
-
-neupan_uav::PointMatrix pointsWorldToBody(
-    const neupan_uav::PointMatrix& points_world,
-    const Eigen::Matrix<double, 6, 1>& state6) {
-  if (points_world.rows() != 3 || points_world.cols() == 0) {
-    return neupan_uav::emptyPointMatrix();
-  }
-  const Eigen::Vector3d position = state6.head<3>();
-  const Eigen::Matrix3d rot =
-      rpyToRotation(state6(3), state6(4), state6(5));
-  return rot.transpose() * (points_world.colwise() - position);
 }
 
 double minBodyClearance(const neupan_uav::PointMatrix& points_body,

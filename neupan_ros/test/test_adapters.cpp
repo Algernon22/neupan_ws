@@ -74,11 +74,6 @@ TEST(Adapters, OdometryToStatesMatchesPythonConvention) {
   EXPECT_NEAR(states.state6(1), 20.0, 1e-12);
   EXPECT_NEAR(states.state6(2), 30.0, 1e-12);
   EXPECT_NEAR(states.state6(5), M_PI / 2.0, 1e-12);
-  EXPECT_NEAR(states.state4(3), M_PI / 2.0, 1e-12);
-  EXPECT_NEAR(states.twist4(0), 0.0, 1e-12);
-  EXPECT_NEAR(states.twist4(1), 1.0, 1e-12);
-  EXPECT_NEAR(states.twist4(2), 0.5, 1e-12);
-  EXPECT_NEAR(states.twist4(3), 0.4, 1e-12);
 }
 
 TEST(Adapters, ReadsFiniteXyzPoints) {
@@ -94,7 +89,7 @@ TEST(Adapters, ReadsFiniteXyzPoints) {
   EXPECT_NEAR(points(2, 1), -3.0, 1e-6);
 }
 
-TEST(Adapters, TransformsBodyPointsToWorldAndBack) {
+TEST(Adapters, TransformsBodyPointsToWorld) {
   Eigen::Matrix<double, 6, 1> state6;
   state6 << 10.0, 20.0, 30.0, 0.0, 0.0, M_PI / 2.0;
   neupan_uav::PointMatrix body(3, 2);
@@ -107,10 +102,4 @@ TEST(Adapters, TransformsBodyPointsToWorldAndBack) {
   EXPECT_NEAR(world(1, 0), 21.0, 1e-12);
   EXPECT_NEAR(world(0, 1), 8.0, 1e-12);
   EXPECT_NEAR(world(1, 1), 20.0, 1e-12);
-
-  const neupan_uav::PointMatrix roundtrip =
-      neupan_ros::pointsWorldToBody(world, state6);
-  ASSERT_EQ(roundtrip.rows(), body.rows());
-  ASSERT_EQ(roundtrip.cols(), body.cols());
-  EXPECT_TRUE(roundtrip.isApprox(body, 1e-12));
 }

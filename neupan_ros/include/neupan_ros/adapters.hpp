@@ -17,8 +17,6 @@ namespace neupan_ros {
 
 struct OdomStates {
   Eigen::Matrix<double, 6, 1> state6 = Eigen::Matrix<double, 6, 1>::Zero();
-  Eigen::Matrix<double, 4, 1> state4 = Eigen::Matrix<double, 4, 1>::Zero();
-  Eigen::Matrix<double, 4, 1> twist4 = Eigen::Matrix<double, 4, 1>::Zero();
 };
 
 struct Rpy {
@@ -34,9 +32,6 @@ OdomStates odometryToStates(const nav_msgs::msg::Odometry& msg);
 neupan_uav::PointMatrix readXyzPoints(const sensor_msgs::msg::PointCloud2& msg);
 neupan_uav::PointMatrix pointsBodyToWorld(
     const neupan_uav::PointMatrix& points_body,
-    const Eigen::Matrix<double, 6, 1>& state6);
-neupan_uav::PointMatrix pointsWorldToBody(
-    const neupan_uav::PointMatrix& points_world,
     const Eigen::Matrix<double, 6, 1>& state6);
 double minBodyClearance(const neupan_uav::PointMatrix& points_body,
                         const Eigen::Vector3d& body_half_extent);

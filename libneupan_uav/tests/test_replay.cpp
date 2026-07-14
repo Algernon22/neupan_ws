@@ -269,6 +269,35 @@ TEST(PlannerStage6, ForwardRunsFullNrmpCycleWithoutObstacles) {
   EXPECT_TRUE(planner.previousAppliedControl().isApprox(applied));
 }
 
+TEST(PlannerStage6, ControlSmoothingSwitchGatesSmoothWeights) {
+  neupan_uav::PlannerConfig enabled_config = fullPlannerConfig(false);
+  enabled_config.pan.nrmp.enable_control_smoothing = true;
+  enabled_config.pan.smooth_u0 = 100.0;
+  enabled_config.pan.smooth_du = 0.0;
+
+  neupan_uav::PlannerConfig disabled_config = enabled_config;
+  disabled_config.pan.nrmp.enable_control_smoothing = false;
+
+  const neupan_uav::Control applied =
+      (neupan_uav::Control() << 1.0, -0.5, 0.25, 0.1).finished();
+  neupan_uav::PlannerInput input;
+  input.state = Eigen::Vector4d(0.0, 0.0, 1.0, 0.0);
+  input.obstacle_points = neupan_uav::emptyPointMatrix();
+
+  neupan_uav::Planner enabled_planner(enabled_config);
+  enabled_planner.notifyAppliedControl(applied);
+  const neupan_uav::PlannerOutput enabled = enabled_planner.forward(input);
+
+  neupan_uav::Planner disabled_planner(disabled_config);
+  disabled_planner.notifyAppliedControl(applied);
+  const neupan_uav::PlannerOutput disabled = disabled_planner.forward(input);
+
+  ASSERT_TRUE(enabled.ready);
+  ASSERT_TRUE(disabled.ready);
+  EXPECT_LT((enabled.command - applied).norm(), 0.25);
+  EXPECT_GT((disabled.command - applied).norm(), 0.5);
+}
+
 TEST(PlannerStage6, ForwardRunsMockDuneToNrmpObstacleCycle) {
   neupan_uav::PlannerConfig config = fullPlannerConfig(true);
   neupan_uav::Planner planner(config);

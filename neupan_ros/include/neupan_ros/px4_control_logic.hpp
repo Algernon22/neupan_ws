@@ -24,7 +24,6 @@ struct ControlInputs {
   bool has_altitude = false;
   double altitude_m = 0.0;
   bool planner_cmd_fresh = false;
-  double planner_cmd_gap_sec = 0.0;
   bool planner_arrived = false;
 };
 

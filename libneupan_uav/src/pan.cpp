@@ -263,8 +263,10 @@ NrmpInput PAN::buildNrmpInput(const PanInput& input,
   nrmp_input.d_max = config_.d_max;
   nrmp_input.ro_obs = config_.ro_obs;
   nrmp_input.bk = config_.bk;
-  nrmp_input.smooth_du = config_.smooth_du;
-  nrmp_input.smooth_u0 = config_.smooth_u0;
+  nrmp_input.smooth_du =
+      config_.nrmp.enable_control_smoothing ? config_.smooth_du : 0.0;
+  nrmp_input.smooth_u0 =
+      config_.nrmp.enable_control_smoothing ? config_.smooth_u0 : 0.0;
 
   if (config_.nrmp.no_obs || config_.nrmp.max_num <= 0) {
     return nrmp_input;

@@ -4,7 +4,6 @@ step_time: 0.1
 ref_speed: 3.0
 
 robot:
-  kinematics: uav
   length: 0.64
   width: 0.64
   height: 0.54
@@ -15,7 +14,6 @@ robot:
   tau_yaw_rate: 0.30
   gain_yaw_rate: 1.0
   velocity_weight_scale: 0.35
-  name: uav
 
 ipath:
   smooth_method: bezier
@@ -73,9 +71,9 @@ pan:
 adjust:
   q_s: 1.1
   p_u: 1.5
-  enable_control_smoothing: true
-  smooth_du: 0.8
-  smooth_u0: 6.0
+  enable_control_smoothing: true    # 平滑总开关；false 时忽略 smooth_du/smooth_u0。
+  smooth_du: 0.8      # 惩罚相邻规划控制差值；越大控制序列越平滑。
+  smooth_u0: 6.0      # 惩罚首个规划控制偏离上一实际发布控制；越大跨周期跳变越小。
   eta: 6.0
   d_max: 4.0         # 最多远离障碍多d_max米
   d_min: 0.8         # 与障碍物至少保持多远

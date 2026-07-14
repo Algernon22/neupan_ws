@@ -51,7 +51,6 @@ TEST(ConfigLoader, LoadsCurrentPlannerYamlShape) {
   EXPECT_FALSE(config.pan.nrmp.solver_options.verbose);
   EXPECT_FALSE(config.pan.nrmp.solver_options.polishing);
   EXPECT_TRUE(config.pan.nrmp.solver_options.warm_starting);
-  EXPECT_TRUE(loaded.farfield_guide_present);
   EXPECT_TRUE(config.farfield_guide.enabled);
   EXPECT_NEAR(config.farfield_guide.range_backoff, 1.0, 1e-12);
   EXPECT_NEAR(config.farfield_guide.range_scale, 1.5, 1e-12);

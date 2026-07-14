@@ -40,24 +40,11 @@ ament_target_dependencies(neupan_ros_core
 )
 target_compile_options(neupan_ros_core PRIVATE -Wall -Wextra -Wpedantic)
 
-add_library(neupan_ros_nodes
-  src/uav_node.cpp
-  src/px4_control.cpp
-)
-target_compile_definitions(neupan_ros_nodes PRIVATE NEUPAN_ROS_DISABLE_NODE_MAIN)
-target_link_libraries(neupan_ros_nodes neupan_ros_core)
-ament_target_dependencies(neupan_ros_nodes
-  geometry_msgs
-  mavros_msgs
-  nav_msgs
-  rclcpp
-  sensor_msgs
-  std_msgs
-)
-target_compile_options(neupan_ros_nodes PRIVATE -Wall -Wextra -Wpedantic)
-
 add_executable(neupan_uav_node
   src/uav_node.cpp
+)
+target_include_directories(neupan_uav_node PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 target_link_libraries(neupan_uav_node neupan_ros_core)
 ament_target_dependencies(neupan_uav_node rclcpp)
@@ -68,6 +55,9 @@ set_target_properties(neupan_uav_node PROPERTIES
 
 add_executable(px4_control
   src/px4_control.cpp
+)
+target_include_directories(px4_control PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 target_link_libraries(px4_control neupan_ros_core)
 ament_target_dependencies(px4_control rclcpp mavros_msgs)
@@ -86,6 +76,26 @@ install(DIRECTORY launch config models DESTINATION share/${PROJECT_NAME})
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
+  find_package(ament_cmake_pytest REQUIRED)
+
+  add_library(neupan_ros_nodes
+    src/uav_node.cpp
+    src/px4_control.cpp
+  )
+  target_compile_definitions(neupan_ros_nodes PRIVATE NEUPAN_ROS_DISABLE_NODE_MAIN)
+  target_include_directories(neupan_ros_nodes PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+  )
+  target_link_libraries(neupan_ros_nodes neupan_ros_core)
+  ament_target_dependencies(neupan_ros_nodes
+    geometry_msgs
+    mavros_msgs
+    nav_msgs
+    rclcpp
+    sensor_msgs
+    std_msgs
+  )
+  target_compile_options(neupan_ros_nodes PRIVATE -Wall -Wextra -Wpedantic)
 
   ament_add_gtest(test_adapters test/test_adapters.cpp)
   target_link_libraries(test_adapters neupan_ros_core)
@@ -106,6 +116,8 @@ if(BUILD_TESTING)
   target_compile_definitions(test_uav_node_smoke PRIVATE
     NEUPAN_ROS_TEST_CONFIG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/config"
     NEUPAN_ROS_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test")
+
+  ament_add_pytest_test(test_bringup_launch test/test_bringup_launch.py)
 endif()
 
 ament_package()

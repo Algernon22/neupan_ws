@@ -12,7 +12,6 @@ neupan_ros::ControlInputs makeInputs() {
   inputs.has_altitude = true;
   inputs.altitude_m = 2.5;
   inputs.planner_cmd_fresh = true;
-  inputs.planner_cmd_gap_sec = 0.0;
   inputs.planner_arrived = false;
   return inputs;
 }
@@ -82,7 +81,6 @@ TEST(Px4ControlLogic, PreOffboardHoldsZeroUntilModeSwitch) {
 TEST(Px4ControlLogic, PlannerStallZeroHolds) {
   auto inputs = makeInputs();
   inputs.planner_cmd_fresh = false;
-  inputs.planner_cmd_gap_sec = 1.0;
   const auto decision = neupan_ros::evaluateControlDecision(
       neupan_ros::ControlPhase::kCarry, inputs, makeConfig());
 
