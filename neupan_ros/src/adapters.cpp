@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <limits>
+#include <optional>
 #include <stdexcept>
 #include <string>
 
@@ -14,12 +16,29 @@ double finiteOrZero(double value) {
   return std::isfinite(value) ? value : 0.0;
 }
 
-int fieldOffset(const sensor_msgs::msg::PointCloud2& msg,
-                const std::string& name) {
+const sensor_msgs::msg::PointField* findField(
+    const sensor_msgs::msg::PointCloud2& msg, const std::string& name) {
   for (const auto& field : msg.fields) {
-    if (field.name == name) return static_cast<int>(field.offset);
+    if (field.name == name) return &field;
   }
-  return -1;
+  return nullptr;
+}
+
+bool checkedMul(std::size_t lhs, std::size_t rhs, std::size_t& out) {
+  if (lhs != 0 && rhs > std::numeric_limits<std::size_t>::max() / lhs) {
+    return false;
+  }
+  out = lhs * rhs;
+  return true;
+}
+
+bool validFloat32Field(const sensor_msgs::msg::PointField* field,
+                       std::size_t point_step) {
+  if (field == nullptr) return false;
+  if (field->datatype != sensor_msgs::msg::PointField::FLOAT32) return false;
+  if (field->count < 1) return false;
+  const std::size_t offset = static_cast<std::size_t>(field->offset);
+  return offset <= point_step && sizeof(float) <= point_step - offset;
 }
 
 float readFloat32(const std::vector<std::uint8_t>& data, std::size_t offset) {
@@ -96,33 +115,59 @@ OdomStates odometryToStates(const nav_msgs::msg::Odometry& msg) {
   return out;
 }
 
-neupan_uav::PointMatrix readXyzPoints(
+std::optional<neupan_uav::PointMatrix> readXyzPoints(
     const sensor_msgs::msg::PointCloud2& msg) {
-  const int x_offset = fieldOffset(msg, "x");
-  const int y_offset = fieldOffset(msg, "y");
-  const int z_offset = fieldOffset(msg, "z");
-  if (x_offset < 0 || y_offset < 0 || z_offset < 0 || msg.point_step == 0) {
-    return neupan_uav::emptyPointMatrix();
+  if (msg.is_bigendian) return std::nullopt;
+  if (msg.point_step == 0) return std::nullopt;
+
+  const std::size_t point_step = static_cast<std::size_t>(msg.point_step);
+  const auto* x_field = findField(msg, "x");
+  const auto* y_field = findField(msg, "y");
+  const auto* z_field = findField(msg, "z");
+  if (!validFloat32Field(x_field, point_step) ||
+      !validFloat32Field(y_field, point_step) ||
+      !validFloat32Field(z_field, point_step)) {
+    return std::nullopt;
   }
 
   const std::size_t width =
-      static_cast<std::size_t>(msg.width) * static_cast<std::size_t>(msg.height);
-  const std::size_t point_step = static_cast<std::size_t>(msg.point_step);
-  const std::size_t required = width * point_step;
-  if (msg.data.size() < required) return neupan_uav::emptyPointMatrix();
+      static_cast<std::size_t>(msg.width);
+  const std::size_t height =
+      static_cast<std::size_t>(msg.height);
+  if (width == 0 || height == 0) return neupan_uav::emptyPointMatrix();
+
+  std::size_t min_row_step = 0;
+  if (!checkedMul(width, point_step, min_row_step)) return std::nullopt;
+  const std::size_t row_step = static_cast<std::size_t>(msg.row_step);
+  if (row_step < min_row_step) return std::nullopt;
+
+  std::size_t required = 0;
+  if (!checkedMul(row_step, height, required)) return std::nullopt;
+  if (msg.data.size() < required) return std::nullopt;
+
+  std::size_t point_count = 0;
+  if (!checkedMul(width, height, point_count)) return std::nullopt;
 
   std::vector<Eigen::Vector3d> finite_points;
-  finite_points.reserve(width);
-  for (std::size_t i = 0; i < width; ++i) {
-    const std::size_t base = i * point_step;
-    const float x = readFloat32(msg.data, base + static_cast<std::size_t>(x_offset));
-    const float y = readFloat32(msg.data, base + static_cast<std::size_t>(y_offset));
-    const float z = readFloat32(msg.data, base + static_cast<std::size_t>(z_offset));
-    if (std::isfinite(x) && std::isfinite(y) && std::isfinite(z)) {
-      finite_points.emplace_back(static_cast<double>(x), static_cast<double>(y),
-                                 static_cast<double>(z));
+  finite_points.reserve(point_count);
+  const std::size_t x_offset = static_cast<std::size_t>(x_field->offset);
+  const std::size_t y_offset = static_cast<std::size_t>(y_field->offset);
+  const std::size_t z_offset = static_cast<std::size_t>(z_field->offset);
+  for (std::size_t row = 0; row < height; ++row) {
+    const std::size_t row_base = row * row_step;
+    for (std::size_t col = 0; col < width; ++col) {
+      const std::size_t base = row_base + col * point_step;
+      const float x = readFloat32(msg.data, base + x_offset);
+      const float y = readFloat32(msg.data, base + y_offset);
+      const float z = readFloat32(msg.data, base + z_offset);
+      if (std::isfinite(x) && std::isfinite(y) && std::isfinite(z)) {
+        finite_points.emplace_back(static_cast<double>(x),
+                                   static_cast<double>(y),
+                                   static_cast<double>(z));
+      }
     }
   }
+  if (point_count > 0 && finite_points.empty()) return std::nullopt;
 
   neupan_uav::PointMatrix out(3, static_cast<Eigen::Index>(finite_points.size()));
   for (Eigen::Index i = 0; i < out.cols(); ++i) {

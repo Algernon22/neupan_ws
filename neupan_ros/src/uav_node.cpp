@@ -172,7 +172,10 @@ void UavNode::logThrottledWarn(const std::string& key, double period_s,
 
 std::optional<UavNode::LatestCloud> UavNode::processCloud(
     const sensor_msgs::msg::PointCloud2& msg) {
-  neupan_uav::PointMatrix points = readXyzPoints(msg);
+  auto parsed = readXyzPoints(msg);
+  if (!parsed.has_value()) return std::nullopt;
+
+  neupan_uav::PointMatrix points = std::move(*parsed);
   const std::uint64_t stamp_ns = stampToNanoseconds(msg.header.stamp);
   LatestCloud cloud;
   cloud.stamp_ns = stamp_ns;
@@ -235,12 +238,16 @@ void UavNode::stateCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
 
 void UavNode::cloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
   auto cloud = processCloud(*msg);
-  if (!cloud.has_value()) return;
+  if (!cloud.has_value()) {
+    logThrottledWarn("invalid_pointcloud", 1.0,
+                     "Rejected malformed PointCloud2 message");
+    return;
+  }
   std::lock_guard<std::mutex> lock(data_mutex_);
   if (latest_cloud_.has_value() && cloud->stamp_ns <= latest_cloud_->stamp_ns) {
     return;
   }
-  latest_cloud_ = *cloud;
+  latest_cloud_ = std::move(*cloud);
 }
 
 void UavNode::appliedCmdCallback(

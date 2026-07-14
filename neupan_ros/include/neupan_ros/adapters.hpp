@@ -29,7 +29,8 @@ Rpy quaternionToRpy(const geometry_msgs::msg::Quaternion& q);
 Eigen::Matrix3d quaternionToRotationMatrix(
     const geometry_msgs::msg::Quaternion& q);
 OdomStates odometryToStates(const nav_msgs::msg::Odometry& msg);
-neupan_uav::PointMatrix readXyzPoints(const sensor_msgs::msg::PointCloud2& msg);
+std::optional<neupan_uav::PointMatrix> readXyzPoints(
+    const sensor_msgs::msg::PointCloud2& msg);
 neupan_uav::PointMatrix pointsBodyToWorld(
     const neupan_uav::PointMatrix& points_body,
     const Eigen::Matrix<double, 6, 1>& state6);

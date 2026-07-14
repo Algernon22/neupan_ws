@@ -56,6 +56,18 @@ bool spinUntil(rclcpp::Executor& executor, std::chrono::milliseconds timeout,
   return predicate();
 }
 
+template <typename Pump>
+void spinFor(rclcpp::Executor& executor, std::chrono::milliseconds duration,
+             Pump pump) {
+  const auto deadline = std::chrono::steady_clock::now() + duration;
+  while (std::chrono::steady_clock::now() < deadline) {
+    pump();
+    executor.spin_some(20ms);
+    std::this_thread::sleep_for(10ms);
+  }
+  executor.spin_some(100ms);
+}
+
 std::string topicPrefix(const std::string& suffix) {
   return "/neupan_ros_test_uav_" + suffix;
 }
@@ -112,6 +124,29 @@ sensor_msgs::msg::PointCloud2 cloudWithPoints(
   return msg;
 }
 
+sensor_msgs::msg::PointCloud2 malformedCloud(rclcpp::Node& node) {
+  sensor_msgs::msg::PointCloud2 msg;
+  msg.header.stamp = node.get_clock()->now();
+  msg.header.frame_id = "base_link";
+  msg.height = 1;
+  msg.width = 1;
+  msg.is_bigendian = false;
+  msg.is_dense = true;
+  msg.point_step = 12;
+  msg.row_step = 12;
+  msg.fields.resize(2);
+  msg.fields[0].name = "x";
+  msg.fields[0].offset = 0;
+  msg.fields[0].datatype = sensor_msgs::msg::PointField::FLOAT32;
+  msg.fields[0].count = 1;
+  msg.fields[1].name = "y";
+  msg.fields[1].offset = 4;
+  msg.fields[1].datatype = sensor_msgs::msg::PointField::FLOAT32;
+  msg.fields[1].count = 1;
+  msg.data.resize(msg.row_step);
+  return msg;
+}
+
 geometry_msgs::msg::TwistStamped appliedCmd(rclcpp::Node& node) {
   geometry_msgs::msg::TwistStamped msg;
   msg.header.stamp = node.get_clock()->now();
@@ -125,7 +160,7 @@ geometry_msgs::msg::TwistStamped appliedCmd(rclcpp::Node& node) {
 
 struct UavHarness {
   explicit UavHarness(const std::string& suffix, double update_rate,
-                      double planner_rate) {
+                      double planner_rate, double max_cloud_age_ms = 1000.0) {
     const std::string prefix = topicPrefix(suffix);
     state_topic = prefix + "/odom";
     cloud_topic = prefix + "/cloud";
@@ -153,7 +188,7 @@ struct UavHarness {
         rclcpp::Parameter("update_rate", update_rate),
         rclcpp::Parameter("planner_rate", planner_rate),
         rclcpp::Parameter("max_state_age_ms", 1000.0),
-        rclcpp::Parameter("max_cloud_age_ms", 1000.0),
+        rclcpp::Parameter("max_cloud_age_ms", max_cloud_age_ms),
         rclcpp::Parameter("profile_planner", true),
     });
 
@@ -193,6 +228,12 @@ struct UavHarness {
     cloud_pub->publish(
         cloudWithPoints(*io_node, {{{6.0F, 4.0F, 2.0F},
                                    {7.0F, -3.0F, 2.0F}}}));
+    applied_pub->publish(appliedCmd(*io_node));
+  }
+
+  void publishStateAndMalformedCloud(double x, double y, double z) {
+    state_pub->publish(odomAt(*io_node, x, y, z));
+    cloud_pub->publish(malformedCloud(*io_node));
     applied_pub->publish(appliedCmd(*io_node));
   }
 
@@ -268,4 +309,21 @@ TEST_F(RosFixture, PlannerNodePublishesArrivedWhenFakeOdomStartsAtGoal) {
   EXPECT_NEAR(cmd.twist.linear.y, 0.0, 1.0e-9);
   EXPECT_NEAR(cmd.twist.linear.z, 0.0, 1.0e-9);
   EXPECT_NEAR(cmd.twist.angular.z, 0.0, 1.0e-9);
+}
+
+TEST_F(RosFixture, MalformedCloudDoesNotRefreshFreshness) {
+  UavHarness harness("bad_cloud", 20.0, 10.0, 150.0);
+
+  const bool got_initial_command = spinUntil(
+      harness.executor, 4s,
+      [&]() { return !harness.commands.empty(); },
+      [&]() { harness.publishPlanningInputs(0.0, 0.0, 2.0); });
+  ASSERT_TRUE(got_initial_command);
+  const std::size_t command_count = harness.commands.size();
+  std::this_thread::sleep_for(250ms);
+
+  spinFor(harness.executor, 1s,
+          [&]() { harness.publishStateAndMalformedCloud(0.0, 0.0, 2.0); });
+
+  EXPECT_EQ(harness.commands.size(), command_count);
 }
