@@ -80,7 +80,6 @@
     {
       "stamp_sec": 0.0,
       "state": [0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-      "previous_applied_control": [0.0, 0.0, 0.0, 0.0],
       "obstacle_points": [
         [8.2, 0.0, 2.0],
         [8.6, 0.1, 2.0],
@@ -91,13 +90,11 @@
     {
       "stamp_sec": 1.0,
       "state": [2.0, 0.0, 2.0, 0.0, 2.0, 0.0, 0.0, 0.0],
-      "previous_applied_control": [2.0, 0.0, 0.0, 0.0],
       "obstacle_points": []
     },
     {
       "stamp_sec": 2.0,
       "state": [4.0, 0.0, 2.0, 0.0, 2.0, 0.0, 0.0, 0.0],
-      "previous_applied_control": [2.0, 0.0, 0.0, 0.0],
       "obstacle_points": []
     }
   ]

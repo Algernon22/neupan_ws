@@ -11,6 +11,7 @@
 #include "geometry_msgs/msg/twist_stamped.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "rcl_interfaces/msg/log.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
 #include "sensor_msgs/msg/point_field.hpp"
 #include "std_msgs/msg/bool.hpp"
@@ -147,24 +148,12 @@ sensor_msgs::msg::PointCloud2 malformedCloud(rclcpp::Node& node) {
   return msg;
 }
 
-geometry_msgs::msg::TwistStamped appliedCmd(rclcpp::Node& node) {
-  geometry_msgs::msg::TwistStamped msg;
-  msg.header.stamp = node.get_clock()->now();
-  msg.header.frame_id = "camera_init";
-  msg.twist.linear.x = 0.11;
-  msg.twist.linear.y = -0.02;
-  msg.twist.linear.z = 0.03;
-  msg.twist.angular.z = 0.04;
-  return msg;
-}
-
 struct UavHarness {
   explicit UavHarness(const std::string& suffix, double update_rate,
                       double planner_rate, double max_cloud_age_ms = 1000.0) {
     const std::string prefix = topicPrefix(suffix);
     state_topic = prefix + "/odom";
     cloud_topic = prefix + "/cloud";
-    applied_topic = prefix + "/applied";
     cmd_topic = prefix + "/cmd";
     arrived_topic = prefix + "/arrived";
 
@@ -175,8 +164,6 @@ struct UavHarness {
         "neupan/planner/cmd_vel:=" + cmd_topic,
         "-r",
         "neupan/planner/arrived:=" + arrived_topic,
-        "-r",
-        "neupan/control/applied_cmd_vel:=" + applied_topic,
     });
     options.parameter_overrides({
         rclcpp::Parameter("robot_config_dir", testConfigPath("")),
@@ -198,9 +185,6 @@ struct UavHarness {
         state_topic, rclcpp::SensorDataQoS());
     cloud_pub = io_node->create_publisher<sensor_msgs::msg::PointCloud2>(
         cloud_topic, rclcpp::SensorDataQoS());
-    applied_pub =
-        io_node->create_publisher<geometry_msgs::msg::TwistStamped>(
-            applied_topic, 10);
     cmd_sub =
         io_node->create_subscription<geometry_msgs::msg::TwistStamped>(
             cmd_topic, 10,
@@ -210,6 +194,10 @@ struct UavHarness {
     arrived_sub = io_node->create_subscription<std_msgs::msg::Bool>(
         arrived_topic, 10, [this](std_msgs::msg::Bool::SharedPtr msg) {
           arrived.push_back(*msg);
+        });
+    rosout_sub = io_node->create_subscription<rcl_interfaces::msg::Log>(
+        "/rosout", 50, [this](rcl_interfaces::msg::Log::SharedPtr msg) {
+          logs.push_back(msg->msg);
         });
 
     executor.add_node(uav_node);
@@ -228,18 +216,15 @@ struct UavHarness {
     cloud_pub->publish(
         cloudWithPoints(*io_node, {{{6.0F, 4.0F, 2.0F},
                                    {7.0F, -3.0F, 2.0F}}}));
-    applied_pub->publish(appliedCmd(*io_node));
   }
 
   void publishStateAndMalformedCloud(double x, double y, double z) {
     state_pub->publish(odomAt(*io_node, x, y, z));
     cloud_pub->publish(malformedCloud(*io_node));
-    applied_pub->publish(appliedCmd(*io_node));
   }
 
   std::string state_topic;
   std::string cloud_topic;
-  std::string applied_topic;
   std::string cmd_topic;
   std::string arrived_topic;
   std::shared_ptr<neupan_ros::UavNode> uav_node;
@@ -247,11 +232,12 @@ struct UavHarness {
   rclcpp::executors::MultiThreadedExecutor executor;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr state_pub;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_pub;
-  rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr applied_pub;
   rclcpp::Subscription<geometry_msgs::msg::TwistStamped>::SharedPtr cmd_sub;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr arrived_sub;
+  rclcpp::Subscription<rcl_interfaces::msg::Log>::SharedPtr rosout_sub;
   std::vector<geometry_msgs::msg::TwistStamped> commands;
   std::vector<std_msgs::msg::Bool> arrived;
+  std::vector<std::string> logs;
 };
 
 }  // namespace
@@ -280,11 +266,13 @@ TEST_F(RosFixture, PlannerNodeProfileLogIncludesFarfieldFields) {
   const bool ok = spinUntil(
       harness.executor, 4s,
       [&]() {
-        const std::string log = harness.uav_node->lastProfileLogForTest();
-        return log.find("Planner profile") != std::string::npos &&
-               log.find("farfield=") != std::string::npos &&
-               log.find("off=") != std::string::npos &&
-               log.find("cnt=") != std::string::npos;
+        return std::any_of(
+            harness.logs.begin(), harness.logs.end(), [](const std::string& log) {
+              return log.find("Planner profile") != std::string::npos &&
+                     log.find("farfield=") != std::string::npos &&
+                     log.find("off=") != std::string::npos &&
+                     log.find("cnt=") != std::string::npos;
+            });
       },
       [&]() { harness.publishPlanningInputs(0.0, 0.0, 2.0); });
 

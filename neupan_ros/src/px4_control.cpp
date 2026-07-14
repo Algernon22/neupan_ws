@@ -69,8 +69,6 @@ Px4ControlNode::Px4ControlNode(const rclcpp::NodeOptions& options)
 
   setpoint_pub_ =
       create_publisher<geometry_msgs::msg::TwistStamped>(setpoint_topic_, 10);
-  applied_cmd_pub_ = create_publisher<geometry_msgs::msg::TwistStamped>(
-      internal::kAppliedCommandTopic, 10);
   debug_pub_ = create_publisher<std_msgs::msg::String>(control_debug_topic_, 10);
 
   cmd_sub_ = create_subscription<geometry_msgs::msg::TwistStamped>(
@@ -225,7 +223,6 @@ void Px4ControlNode::publishSetpoint(const neupan_uav::Control& control) {
   const auto msg =
       controlToTwistStamped(control, get_clock()->now(), command_frame_);
   setpoint_pub_->publish(msg);
-  applied_cmd_pub_->publish(msg);
 }
 
 neupan_uav::Control Px4ControlNode::takeoffSetpoint() const {

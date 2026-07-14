@@ -82,8 +82,8 @@ struct PlannerOutput {
   double min_distance = std::numeric_limits<double>::infinity();
   PlannerProfile profile;
 
-  // The command used as this planning cycle's warm-start seed. It must be the
-  // command that was actually published/applied in the previous cycle.
+  // The previous successful planner command used as this planning cycle's
+  // warm-start seed.
   Control seed_control = Control::Zero();
 };
 

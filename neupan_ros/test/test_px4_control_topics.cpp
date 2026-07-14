@@ -89,7 +89,6 @@ struct Px4Harness {
     state_topic = prefix + "/state";
     odom_topic = prefix + "/odom";
     setpoint_topic = prefix + "/setpoint";
-    applied_topic = prefix + "/applied";
     arrived_topic = prefix + "/arrived";
     debug_topic = prefix + "/debug";
 
@@ -100,8 +99,6 @@ struct Px4Harness {
         "neupan/planner/cmd_vel:=" + command_topic,
         "-r",
         "neupan/planner/arrived:=" + arrived_topic,
-        "-r",
-        "neupan/control/applied_cmd_vel:=" + applied_topic,
     });
     options.parameter_overrides({
         rclcpp::Parameter("mavros_state_topic", state_topic),
@@ -138,12 +135,6 @@ struct Px4Harness {
             [this](geometry_msgs::msg::TwistStamped::SharedPtr msg) {
               setpoints.push_back(*msg);
             });
-    applied_sub =
-        io_node->create_subscription<geometry_msgs::msg::TwistStamped>(
-            applied_topic, 10,
-            [this](geometry_msgs::msg::TwistStamped::SharedPtr msg) {
-              applied.push_back(*msg);
-            });
     debug_sub = io_node->create_subscription<std_msgs::msg::String>(
         debug_topic, 10, [this](std_msgs::msg::String::SharedPtr msg) {
           debug.push_back(msg->data);
@@ -164,7 +155,6 @@ struct Px4Harness {
   std::string state_topic;
   std::string odom_topic;
   std::string setpoint_topic;
-  std::string applied_topic;
   std::string arrived_topic;
   std::string debug_topic;
   std::shared_ptr<neupan_ros::Px4ControlNode> px4_node;
@@ -175,10 +165,8 @@ struct Px4Harness {
   rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr cmd_pub;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr arrived_pub;
   rclcpp::Subscription<geometry_msgs::msg::TwistStamped>::SharedPtr setpoint_sub;
-  rclcpp::Subscription<geometry_msgs::msg::TwistStamped>::SharedPtr applied_sub;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr debug_sub;
   std::vector<geometry_msgs::msg::TwistStamped> setpoints;
-  std::vector<geometry_msgs::msg::TwistStamped> applied;
   std::vector<std::string> debug;
 };
 
@@ -188,53 +176,51 @@ bool latestDebugContains(const Px4Harness& harness,
          harness.debug.back().find(needle) != std::string::npos;
 }
 
-bool latestSetpointAndAppliedNear(const Px4Harness& harness, double vx,
-                                  double vy, double vz, double yaw_rate) {
-  if (harness.setpoints.empty() || harness.applied.empty()) return false;
+bool latestSetpointNear(const Px4Harness& harness, double vx,
+                        double vy, double vz, double yaw_rate) {
+  if (harness.setpoints.empty()) return false;
   return twistNear(harness.setpoints.back(), vx, vy, vz, yaw_rate) &&
-         twistNear(harness.applied.back(), vx, vy, vz, yaw_rate) &&
-         harness.setpoints.back().header.frame_id == "camera_init" &&
-         harness.applied.back().header.frame_id == "camera_init";
+         harness.setpoints.back().header.frame_id == "camera_init";
 }
 
 }  // namespace
 
-TEST_F(RosFixture, HoldPublishesZeroSetpointAndAppliedFeedback) {
+TEST_F(RosFixture, HoldPublishesZeroSetpoint) {
   Px4Harness harness("hold", false);
 
   const bool ok = spinUntil(
       harness.executor, 2s,
       [&]() {
         return latestDebugContains(harness, "reason=planner_cmd_stale") &&
-               latestSetpointAndAppliedNear(harness, 0.0, 0.0, 0.0, 0.0);
+               latestSetpointNear(harness, 0.0, 0.0, 0.0, 0.0);
       },
       [&]() { harness.publishReady(2.2); });
 
   ASSERT_TRUE(ok);
 }
 
-TEST_F(RosFixture, TakeoffPublishesClimbSetpointAndAppliedFeedback) {
+TEST_F(RosFixture, TakeoffPublishesClimbSetpoint) {
   Px4Harness harness("takeoff", true);
 
   const bool ok = spinUntil(
       harness.executor, 2s,
       [&]() {
         return latestDebugContains(harness, "reason=takeoff_phase") &&
-               latestSetpointAndAppliedNear(harness, 0.0, 0.0, 1.0, 0.0);
+               latestSetpointNear(harness, 0.0, 0.0, 1.0, 0.0);
       },
       [&]() { harness.publishReady(1.0); });
 
   ASSERT_TRUE(ok);
 }
 
-TEST_F(RosFixture, PlannerCommandIsForwardedToSetpointAndAppliedFeedback) {
+TEST_F(RosFixture, PlannerCommandIsForwardedToSetpoint) {
   Px4Harness harness("planner_cmd", false);
 
   const bool ok = spinUntil(
       harness.executor, 2s,
       [&]() {
         return latestDebugContains(harness, "reason=following_planner") &&
-               latestSetpointAndAppliedNear(harness, 0.2, -0.1, 0.3, 0.4);
+               latestSetpointNear(harness, 0.2, -0.1, 0.3, 0.4);
       },
       [&]() {
         harness.publishReady(2.2);
@@ -245,14 +231,14 @@ TEST_F(RosFixture, PlannerCommandIsForwardedToSetpointAndAppliedFeedback) {
   ASSERT_TRUE(ok);
 }
 
-TEST_F(RosFixture, PlannerArrivedSwitchesToZeroAppliedFeedback) {
+TEST_F(RosFixture, PlannerArrivedSwitchesToZeroSetpoint) {
   Px4Harness harness("arrived", false);
 
   const bool followed = spinUntil(
       harness.executor, 2s,
       [&]() {
         return latestDebugContains(harness, "reason=following_planner") &&
-               latestSetpointAndAppliedNear(harness, 0.2, -0.1, 0.3, 0.4);
+               latestSetpointNear(harness, 0.2, -0.1, 0.3, 0.4);
       },
       [&]() {
         harness.publishReady(2.2);
@@ -267,7 +253,7 @@ TEST_F(RosFixture, PlannerArrivedSwitchesToZeroAppliedFeedback) {
       harness.executor, 2s,
       [&]() {
         return latestDebugContains(harness, "reason=mission_finished") &&
-               latestSetpointAndAppliedNear(harness, 0.0, 0.0, 0.0, 0.0);
+               latestSetpointNear(harness, 0.0, 0.0, 0.0, 0.0);
       },
       [&]() {
         harness.publishReady(2.2);

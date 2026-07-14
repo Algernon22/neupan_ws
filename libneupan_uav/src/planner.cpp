@@ -126,25 +126,29 @@ void Planner::setRknnRunner(std::unique_ptr<RknnRunner> runner) {
 
 PlannerOutput Planner::forward(const PlannerInput& input) {
   const auto start = std::chrono::steady_clock::now();
-  const Control seed = previous_applied_control_;
+  const Control seed = previous_command_;
 
   if (!input.valid) {
+    clearPreviousCommand();
     PlannerOutput out = invalidOutput("invalid_input");
     out.seed_control = seed;
     return out;
   }
   if (input.stale) {
+    clearPreviousCommand();
     PlannerOutput out = invalidOutput("stale_input");
     out.seed_control = seed;
     return out;
   }
   if (input.state.size() < 4 || !allFiniteVector(input.state)) {
+    clearPreviousCommand();
     PlannerOutput out = invalidOutput("invalid_state");
     out.seed_control = seed;
     return out;
   }
   if (input.obstacle_points.rows() != 3 ||
       !allFinite(input.obstacle_points)) {
+    clearPreviousCommand();
     PlannerOutput out = invalidOutput("invalid_obstacle_points");
     out.seed_control = seed;
     return out;
@@ -153,6 +157,7 @@ PlannerOutput Planner::forward(const PlannerInput& input) {
       (input.obstacle_velocities.rows() != 3 ||
        input.obstacle_velocities.cols() != input.obstacle_points.cols() ||
        !allFinite(input.obstacle_velocities))) {
+    clearPreviousCommand();
     PlannerOutput out = invalidOutput("invalid_obstacle_velocities");
     out.seed_control = seed;
     return out;
@@ -171,7 +176,7 @@ PlannerOutput Planner::forward(const PlannerInput& input) {
     out.reason = "arrived";
     out.arrive = true;
     out.min_distance = minBodyClearance(input.state, input.obstacle_points);
-    resetAppliedControl();
+    clearPreviousCommand();
     resetControlBuffer();
     out.profile.forward_sec =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
@@ -231,7 +236,7 @@ PlannerOutput Planner::forward(const PlannerInput& input) {
     out.ready = true;
     out.reason = "planner_stop";
     out.stop = true;
-    resetAppliedControl();
+    clearPreviousCommand();
     resetControlBuffer();
     out.profile.forward_sec =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
@@ -241,6 +246,7 @@ PlannerOutput Planner::forward(const PlannerInput& input) {
 
   const PanOutput pan_out = pan_.forward(pan_input);
   out.command = robot_.clampControl(pan_out.command);
+  previous_command_ = out.command;
   out.trajectory = pan_out.trajectory;
   out.reference = pan_out.reference;
   out.control_trajectory = pan_out.control_trajectory;
@@ -270,7 +276,7 @@ PlannerOutput Planner::forward(const PlannerInput& input) {
 }
 
 void Planner::reset() {
-  resetAppliedControl();
+  clearPreviousCommand();
   resetControlBuffer();
   preselector_.reset();
   farfield_guide_.reset();
@@ -283,7 +289,7 @@ PlannerOutput Planner::invalidOutput(const std::string& reason) const {
   out.ready = false;
   out.reason = reason;
   out.command = Control::Zero();
-  out.seed_control = previous_applied_control_;
+  out.seed_control = previous_command_;
   return out;
 }
 
@@ -542,8 +548,8 @@ Eigen::Matrix<Scalar, 4, Eigen::Dynamic> Planner::referenceGeometry() const {
   return ref;
 }
 
-void Planner::resetAppliedControl() {
-  previous_applied_control_.setZero();
+void Planner::clearPreviousCommand() {
+  previous_command_.setZero();
 }
 
 void Planner::resetControlBuffer() {

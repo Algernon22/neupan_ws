@@ -267,7 +267,6 @@ struct PanFixture {
 struct FrameFixture {
   double stamp_sec = 0.0;
   Eigen::VectorXd state;
-  neupan_uav::Control previous_applied = neupan_uav::Control::Zero();
   neupan_uav::PointMatrix obstacle_points = neupan_uav::emptyPointMatrix();
 };
 
@@ -602,8 +601,6 @@ FrameFixture readFrame(JsonReader& reader) {
         frame.stamp_sec = reader.number();
       } else if (key == "state") {
         frame.state = readVector(reader);
-      } else if (key == "previous_applied_control") {
-        frame.previous_applied = readControlArray(reader);
       } else if (key == "obstacle_points") {
         frame.obstacle_points = readPointRows(reader);
       } else {
@@ -875,7 +872,6 @@ int main(int argc, char** argv) {
     std::vector<neupan_uav::PlannerOutput> outputs;
     outputs.reserve(fixture.frames.size());
     for (const FrameFixture& frame : fixture.frames) {
-      planner.notifyAppliedControl(frame.previous_applied);
       neupan_uav::PlannerInput input;
       input.state = frame.state;
       input.obstacle_points = frame.obstacle_points;

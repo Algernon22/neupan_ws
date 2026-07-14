@@ -124,11 +124,6 @@ UavNode::UavNode(const rclcpp::NodeOptions& options)
       [this](sensor_msgs::msg::PointCloud2::SharedPtr msg) {
         cloudCallback(msg);
       });
-  applied_sub_ = create_subscription<geometry_msgs::msg::TwistStamped>(
-      internal::kAppliedCommandTopic, 10,
-      [this](geometry_msgs::msg::TwistStamped::SharedPtr msg) {
-        appliedCmdCallback(msg);
-      });
   publish_timer_ = create_wall_timer(
       std::chrono::duration<double>(1.0 / update_rate_),
       [this]() { publishLoop(); });
@@ -250,12 +245,6 @@ void UavNode::cloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg) 
   latest_cloud_ = std::move(*cloud);
 }
 
-void UavNode::appliedCmdCallback(
-    const geometry_msgs::msg::TwistStamped::SharedPtr msg) {
-  std::lock_guard<std::mutex> lock(data_mutex_);
-  latest_applied_cmd_ = twistStampedToControl(*msg);
-}
-
 std::optional<UavNode::PlannerJob> UavNode::snapshotPlannerInputs() {
   const double now_s = nowSec();
   std::lock_guard<std::mutex> lock(data_mutex_);
@@ -287,15 +276,11 @@ std::optional<UavNode::PlannerJob> UavNode::snapshotPlannerInputs() {
   PlannerJob job;
   job.state = *latest_state_;
   job.cloud = *latest_cloud_;
-  job.applied_control = latest_applied_cmd_;
   return job;
 }
 
 UavNode::PlannerResult UavNode::runPlannerOnce(const PlannerJob& job) {
   PlannerResult result;
-  if (job.applied_control.has_value()) {
-    planner_->notifyAppliedControl(*job.applied_control);
-  }
 
   neupan_uav::PlannerInput input;
   input.state = job.state.planner_state;
@@ -332,9 +317,8 @@ UavNode::PlannerResult UavNode::runPlannerOnce(const PlannerJob& job) {
                   out.profile.preselected_obstacle_count,
                   out.profile.dune_selected_count, out.profile.osqp_status,
                   out.profile.osqp_iteration_count);
-    last_profile_log_ = profile_log;
     RCLCPP_INFO(get_logger(),
-                "%s", last_profile_log_.c_str());
+                "%s", profile_log);
   }
   return result;
 }

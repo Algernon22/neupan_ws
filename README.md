@@ -75,13 +75,12 @@ ros2 launch neupan_ros bringup_cpp.launch.py
 |---|---|---|---|
 | 输入 | `/Odometry` | `nav_msgs/Odometry` | UAV pose / attitude |
 | 输入 | `/cloud_registered_body` | `sensor_msgs/PointCloud2` | body frame 障碍点云 |
-| 输入 | `/neupan/control/applied_cmd_vel` | `geometry_msgs/TwistStamped` | 实际发布控制量反馈 |
 | 输出 | `/neupan/planner/cmd_vel` | `geometry_msgs/TwistStamped` | planner setpoint |
 | 输出 | `/neupan/planner/arrived` | `std_msgs/Bool` | 到达标志 |
 | PX4 | `/mavros/setpoint_velocity/cmd_vel` | `geometry_msgs/TwistStamped` | MAVROS velocity setpoint |
 
-`prev_u` / warm-start 语义：planner 使用上一周期**实际发布给 PX4**的控制量作为下一帧
-seed，而不是直接使用 planner 自己算出的第一列控制量。
+`prev_u` / warm-start 语义：planner 使用上一周期成功生成且经过限幅的
+`/neupan/planner/cmd_vel` 作为下一帧 seed。
 
 ## 架构
 

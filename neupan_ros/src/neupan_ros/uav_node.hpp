@@ -23,7 +23,6 @@ class UavNode final : public rclcpp::Node {
  public:
   explicit UavNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions());
   ~UavNode() override;
-  std::string lastProfileLogForTest() const { return last_profile_log_; }
 
  private:
   struct LatestState {
@@ -44,7 +43,6 @@ class UavNode final : public rclcpp::Node {
   struct PlannerJob {
     LatestState state;
     LatestCloud cloud;
-    std::optional<neupan_uav::Control> applied_control;
   };
 
   struct PlannerResult {
@@ -68,8 +66,6 @@ class UavNode final : public rclcpp::Node {
   void publishLoop();
   void stateCallback(const nav_msgs::msg::Odometry::SharedPtr msg);
   void cloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
-  void appliedCmdCallback(
-      const geometry_msgs::msg::TwistStamped::SharedPtr msg);
   void storeLatestResult(const PlannerResult& result);
 
   std::unique_ptr<neupan_uav::Planner> planner_;
@@ -87,12 +83,10 @@ class UavNode final : public rclcpp::Node {
   Eigen::Vector3d self_filter_margin_xyz_ =
       Eigen::Vector3d(0.05, 0.05, 0.05);
   bool profile_planner_ = false;
-  std::string last_profile_log_;
 
   std::mutex data_mutex_;
   std::optional<LatestState> latest_state_;
   std::optional<LatestCloud> latest_cloud_;
-  std::optional<neupan_uav::Control> latest_applied_cmd_;
   PlannerResult latest_result_;
   bool stop_worker_ = false;
   std::thread planner_thread_;
@@ -102,7 +96,6 @@ class UavNode final : public rclcpp::Node {
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr arrived_pub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr state_sub_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
-  rclcpp::Subscription<geometry_msgs::msg::TwistStamped>::SharedPtr applied_sub_;
   rclcpp::TimerBase::SharedPtr publish_timer_;
 };
 

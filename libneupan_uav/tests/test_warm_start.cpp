@@ -31,109 +31,93 @@ neupan_uav::PlannerConfig configWithCommand(
 
 }  // namespace
 
-TEST(PlannerWarmStart, InitialPreviousAppliedControlIsZero) {
+TEST(PlannerWarmStart, InitialPreviousCommandIsZero) {
   neupan_uav::Planner planner(buildConfig());
 
-  EXPECT_TRUE(planner.previousAppliedControl().isZero());
+  EXPECT_TRUE(planner.previousCommand().isZero());
 
   const neupan_uav::PlannerOutput out = planner.forward(basicInput());
   EXPECT_TRUE(out.ready);
   EXPECT_EQ(out.reason, "planner_ok");
   EXPECT_TRUE(out.seed_control.isZero());
-  EXPECT_TRUE(planner.previousAppliedControl().isZero());
+  EXPECT_TRUE(planner.previousCommand().isZero());
 }
 
-TEST(PlannerWarmStart, NotifyAppliedControlSeedsNextForward) {
-  neupan_uav::Planner planner(buildConfig());
-  const neupan_uav::Control applied =
-      (neupan_uav::Control() << 1.0, -2.0, 0.5, 0.25).finished();
-
-  planner.notifyAppliedControl(applied);
-
-  EXPECT_TRUE(planner.previousAppliedControl().isApprox(applied));
-  const neupan_uav::PlannerOutput out = planner.forward(basicInput());
-  EXPECT_TRUE(out.seed_control.isApprox(applied));
-  EXPECT_TRUE(planner.previousAppliedControl().isApprox(applied));
-}
-
-TEST(PlannerWarmStart, ForwardDoesNotAutoApplyPlannerOutput) {
+TEST(PlannerWarmStart, SuccessfulForwardSeedsNextCycleWithPublishedCommand) {
   const neupan_uav::Control desired =
       (neupan_uav::Control() << 0.1, 0.2, 0.3, 0.4).finished();
   neupan_uav::Planner planner(configWithCommand(desired));
-  const neupan_uav::Control applied =
-      (neupan_uav::Control() << -1.0, 0.0, 0.2, -0.3).finished();
-  planner.notifyAppliedControl(applied);
 
-  const neupan_uav::PlannerOutput out = planner.forward(basicInput());
+  const neupan_uav::PlannerOutput first = planner.forward(basicInput());
+  ASSERT_TRUE(first.ready);
+  EXPECT_TRUE(first.seed_control.isZero());
+  EXPECT_TRUE(first.command.isApprox(desired));
+  EXPECT_TRUE(planner.previousCommand().isApprox(first.command));
 
-  EXPECT_TRUE(out.command.isApprox(desired));
-  EXPECT_TRUE(out.seed_control.isApprox(applied));
-  EXPECT_TRUE(planner.previousAppliedControl().isApprox(applied));
+  const neupan_uav::PlannerOutput second = planner.forward(basicInput());
+  ASSERT_TRUE(second.ready);
+  EXPECT_TRUE(second.seed_control.isApprox(first.command));
+  EXPECT_TRUE(planner.previousCommand().isApprox(second.command));
 }
 
-TEST(PlannerWarmStart, AcceptsFlatAndRowAppliedControlShapes) {
-  neupan_uav::Planner planner(buildConfig());
-  Eigen::RowVector4d row;
-  row << 0.1, 0.2, 0.3, 0.4;
+TEST(PlannerWarmStart, StoresClampedCommandForNextSeed) {
+  neupan_uav::PlannerConfig config;
+  config.placeholder_command << 2.0, -2.0, 0.5, 3.0;
+  config.robot.max_control << 0.4, 0.3, 1.0, 0.2;
+  neupan_uav::Planner planner(buildConfig(std::move(config)));
 
-  planner.notifyAppliedControl(row);
-  EXPECT_TRUE(planner.previousAppliedControl().isApprox(row.transpose()));
+  const neupan_uav::PlannerOutput first = planner.forward(basicInput());
+  ASSERT_TRUE(first.ready);
+  EXPECT_TRUE(first.command.isApprox(
+      (neupan_uav::Control() << 0.4, -0.3, 0.5, 0.2).finished()));
+  EXPECT_TRUE(planner.previousCommand().isApprox(first.command));
 
-  Eigen::VectorXd flat(4);
-  flat << 4.0, 3.0, 2.0, 1.0;
-  planner.notifyAppliedControl(flat);
-  EXPECT_TRUE(planner.previousAppliedControl().isApprox(flat));
+  const neupan_uav::PlannerOutput second = planner.forward(basicInput());
+  ASSERT_TRUE(second.ready);
+  EXPECT_TRUE(second.seed_control.isApprox(first.command));
 }
 
-TEST(PlannerWarmStart, RejectsBadAppliedControl) {
-  neupan_uav::Planner planner(buildConfig());
-
-  EXPECT_THROW(planner.notifyAppliedControl(Eigen::Vector3d::Zero()),
-               std::invalid_argument);
-
-  Eigen::Vector4d bad = Eigen::Vector4d::Zero();
-  bad(2) = std::numeric_limits<double>::quiet_NaN();
-  EXPECT_THROW(planner.notifyAppliedControl(bad), std::invalid_argument);
-}
-
-TEST(PlannerWarmStart, ResetClearsPreviousAppliedControl) {
-  neupan_uav::Planner planner(buildConfig());
-  planner.notifyAppliedControl(
-      (neupan_uav::Control() << 1.0, 2.0, 3.0, 4.0).finished());
+TEST(PlannerWarmStart, ResetClearsPreviousCommand) {
+  neupan_uav::Planner planner(configWithCommand(
+      (neupan_uav::Control() << 1.0, 2.0, 3.0, 4.0).finished()));
+  ASSERT_TRUE(planner.forward(basicInput()).ready);
+  ASSERT_FALSE(planner.previousCommand().isZero());
 
   planner.reset();
 
-  EXPECT_TRUE(planner.previousAppliedControl().isZero());
+  EXPECT_TRUE(planner.previousCommand().isZero());
 }
 
 TEST(PlannerWarmStart, ArriveReturnsZeroAndResetsNextSeed) {
   neupan_uav::PlannerConfig config;
+  config.placeholder_command << 0.7, 0.0, 0.0, 0.0;
   config.has_goal = true;
-  config.goal_position = Eigen::Vector3d(1.0, 2.0, 3.0);
+  config.goal_position = Eigen::Vector3d(9.0, 2.0, 3.0);
   config.arrive_threshold = 0.5;
   neupan_uav::Planner planner(buildConfig(std::move(config)));
-  const neupan_uav::Control applied =
-      (neupan_uav::Control() << 1.0, 2.0, 3.0, 4.0).finished();
-  planner.notifyAppliedControl(applied);
+  ASSERT_TRUE(planner.forward(basicInput()).ready);
+  ASSERT_FALSE(planner.previousCommand().isZero());
 
-  const neupan_uav::PlannerOutput out = planner.forward(basicInput());
+  neupan_uav::PlannerInput arrived_input = basicInput();
+  arrived_input.state = Eigen::Vector4d(9.0, 2.0, 3.0, 0.4);
+  const neupan_uav::PlannerOutput out = planner.forward(arrived_input);
 
   EXPECT_TRUE(out.ready);
   EXPECT_TRUE(out.arrive);
   EXPECT_EQ(out.reason, "arrived");
   EXPECT_TRUE(out.command.isZero());
-  EXPECT_TRUE(out.seed_control.isApprox(applied));
-  EXPECT_TRUE(planner.previousAppliedControl().isZero());
+  EXPECT_FALSE(out.seed_control.isZero());
+  EXPECT_TRUE(planner.previousCommand().isZero());
 }
 
 TEST(PlannerWarmStart, StopReturnsZeroAndResetsNextSeed) {
   neupan_uav::PlannerConfig config;
+  config.placeholder_command << 0.7, 0.0, 0.0, 0.0;
   config.collision_threshold = 0.2;
   config.robot.body_half_extent = Eigen::Vector3d::Zero();
   neupan_uav::Planner planner(buildConfig(std::move(config)));
-  const neupan_uav::Control applied =
-      (neupan_uav::Control() << -1.0, 0.1, 0.2, 0.3).finished();
-  planner.notifyAppliedControl(applied);
+  ASSERT_TRUE(planner.forward(basicInput()).ready);
+  ASSERT_FALSE(planner.previousCommand().isZero());
 
   neupan_uav::PlannerInput input = basicInput();
   input.obstacle_points.resize(3, 1);
@@ -145,29 +129,30 @@ TEST(PlannerWarmStart, StopReturnsZeroAndResetsNextSeed) {
   EXPECT_TRUE(out.stop);
   EXPECT_EQ(out.reason, "planner_stop");
   EXPECT_TRUE(out.command.isZero());
-  EXPECT_TRUE(out.seed_control.isApprox(applied));
-  EXPECT_TRUE(planner.previousAppliedControl().isZero());
+  EXPECT_FALSE(out.seed_control.isZero());
+  EXPECT_TRUE(planner.previousCommand().isZero());
 }
 
-TEST(PlannerWarmStart, StaleAndInvalidInputsDoNotResetSeed) {
-  neupan_uav::Planner planner(buildConfig());
-  const neupan_uav::Control applied =
-      (neupan_uav::Control() << 0.7, 0.6, 0.5, 0.4).finished();
-  planner.notifyAppliedControl(applied);
+TEST(PlannerWarmStart, InvalidInputsClearPreviousCommand) {
+  neupan_uav::Planner planner(configWithCommand(
+      (neupan_uav::Control() << 0.7, 0.6, 0.5, 0.4).finished()));
+  ASSERT_TRUE(planner.forward(basicInput()).ready);
+  ASSERT_FALSE(planner.previousCommand().isZero());
 
   neupan_uav::PlannerInput stale = basicInput();
   stale.stale = true;
   const neupan_uav::PlannerOutput stale_out = planner.forward(stale);
   EXPECT_FALSE(stale_out.ready);
   EXPECT_EQ(stale_out.reason, "stale_input");
-  EXPECT_TRUE(stale_out.seed_control.isApprox(applied));
-  EXPECT_TRUE(planner.previousAppliedControl().isApprox(applied));
+  EXPECT_FALSE(stale_out.seed_control.isZero());
+  EXPECT_TRUE(planner.previousCommand().isZero());
 
+  ASSERT_TRUE(planner.forward(basicInput()).ready);
   neupan_uav::PlannerInput invalid = basicInput();
   invalid.valid = false;
   const neupan_uav::PlannerOutput invalid_out = planner.forward(invalid);
   EXPECT_FALSE(invalid_out.ready);
   EXPECT_EQ(invalid_out.reason, "invalid_input");
-  EXPECT_TRUE(invalid_out.seed_control.isApprox(applied));
-  EXPECT_TRUE(planner.previousAppliedControl().isApprox(applied));
+  EXPECT_FALSE(invalid_out.seed_control.isZero());
+  EXPECT_TRUE(planner.previousCommand().isZero());
 }
