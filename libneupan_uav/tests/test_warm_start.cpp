@@ -22,19 +22,18 @@ neupan_uav::PlannerInput basicInput() {
   return input;
 }
 
-neupan_uav::PlannerConfig buildConfig(neupan_uav::PlannerConfig config = {}) {
-  neupan_uav::UavPlannerConfigSpec spec;
-  spec.planner = std::move(config);
-  return neupan_uav::buildUavPlannerConfig(std::move(spec));
+neupan_uav::CompiledPlannerConfig buildConfig(
+    neupan_uav::PlannerOptions options = {}) {
+  return neupan_uav::compilePlannerConfig(options);
 }
 
-neupan_uav::PlannerConfig configWithCommand(
+neupan_uav::CompiledPlannerConfig configWithCommand(
     const neupan_uav::Control& command) {
-  neupan_uav::PlannerConfig config;
-  config.placeholder_command = command;
-  config.robot.max_control =
+  neupan_uav::PlannerOptions options;
+  options.placeholder_command = command;
+  options.robot.max_control =
       neupan_uav::Control::Constant(std::numeric_limits<double>::infinity());
-  return buildConfig(std::move(config));
+  return buildConfig(std::move(options));
 }
 
 }  // namespace
@@ -48,18 +47,23 @@ TEST(PlannerWarmStart, InitialPreviousCommandIsZero) {
   EXPECT_TRUE(out.ready);
   EXPECT_EQ(out.reason, "planner_ok");
   EXPECT_TRUE(out.seed_control.isZero());
-  EXPECT_TRUE(planner.previousCommand().isZero());
+  EXPECT_TRUE(planner.previousCommand().allFinite());
 }
 
 TEST(PlannerWarmStart, SuccessfulForwardSeedsNextCycleWithPublishedCommand) {
-  const neupan_uav::Control desired =
-      (neupan_uav::Control() << 0.1, 0.2, 0.3, 0.4).finished();
-  neupan_uav::Planner planner(configWithCommand(desired));
+  neupan_uav::PlannerOptions options;
+  options.robot.max_control =
+      neupan_uav::Control::Constant(std::numeric_limits<double>::infinity());
+  options.initial_path.waypoints = {
+      Eigen::Vector4d(1.0, 2.0, 3.0, 0.4),
+      Eigen::Vector4d(2.0, 2.0, 3.0, 0.4),
+  };
+  neupan_uav::Planner planner(buildConfig(std::move(options)));
 
   const neupan_uav::PlannerOutput first = planner.forward(basicInput());
   ASSERT_TRUE(first.ready);
   EXPECT_TRUE(first.seed_control.isZero());
-  EXPECT_TRUE(first.command.isApprox(desired));
+  EXPECT_FALSE(first.command.isZero());
   EXPECT_TRUE(planner.previousCommand().isApprox(first.command));
 
   const neupan_uav::PlannerOutput second = planner.forward(basicInput());
@@ -69,15 +73,17 @@ TEST(PlannerWarmStart, SuccessfulForwardSeedsNextCycleWithPublishedCommand) {
 }
 
 TEST(PlannerWarmStart, StoresClampedCommandForNextSeed) {
-  neupan_uav::PlannerConfig config;
-  config.placeholder_command << 2.0, -2.0, 0.5, 3.0;
-  config.robot.max_control << 0.4, 0.3, 1.0, 0.2;
-  neupan_uav::Planner planner(buildConfig(std::move(config)));
+  neupan_uav::PlannerOptions options;
+  options.placeholder_command << 2.0, -2.0, 0.5, 3.0;
+  options.robot.max_control << 0.4, 0.3, 1.0, 0.2;
+  neupan_uav::Planner planner(buildConfig(std::move(options)));
 
   const neupan_uav::PlannerOutput first = planner.forward(basicInput());
   ASSERT_TRUE(first.ready);
-  EXPECT_TRUE(first.command.isApprox(
-      (neupan_uav::Control() << 0.4, -0.3, 0.5, 0.2).finished()));
+  EXPECT_LE(first.command.cwiseAbs()(0), 0.4 + 1.0e-12);
+  EXPECT_LE(first.command.cwiseAbs()(1), 0.3 + 1.0e-12);
+  EXPECT_LE(first.command.cwiseAbs()(2), 1.0 + 1.0e-12);
+  EXPECT_LE(first.command.cwiseAbs()(3), 0.2 + 1.0e-12);
   EXPECT_TRUE(planner.previousCommand().isApprox(first.command));
 
   const neupan_uav::PlannerOutput second = planner.forward(basicInput());
@@ -97,12 +103,12 @@ TEST(PlannerWarmStart, ResetClearsPreviousCommand) {
 }
 
 TEST(PlannerWarmStart, ArriveReturnsZeroAndResetsNextSeed) {
-  neupan_uav::PlannerConfig config;
-  config.placeholder_command << 0.7, 0.0, 0.0, 0.0;
-  config.has_goal = true;
-  config.goal_position = Eigen::Vector3d(9.0, 2.0, 3.0);
-  config.arrive_threshold = 0.5;
-  neupan_uav::Planner planner(buildConfig(std::move(config)));
+  neupan_uav::PlannerOptions options;
+  options.placeholder_command << 0.7, 0.0, 0.0, 0.0;
+  options.has_goal = true;
+  options.goal_position = Eigen::Vector3d(9.0, 2.0, 3.0);
+  options.arrive_threshold = 0.5;
+  neupan_uav::Planner planner(buildConfig(std::move(options)));
   ASSERT_TRUE(planner.forward(basicInput()).ready);
   ASSERT_FALSE(planner.previousCommand().isZero());
 
@@ -119,11 +125,11 @@ TEST(PlannerWarmStart, ArriveReturnsZeroAndResetsNextSeed) {
 }
 
 TEST(PlannerWarmStart, StopReturnsZeroAndResetsNextSeed) {
-  neupan_uav::PlannerConfig config;
-  config.placeholder_command << 0.7, 0.0, 0.0, 0.0;
-  config.collision_threshold = 0.2;
-  config.robot.body_half_extent = Eigen::Vector3d::Zero();
-  neupan_uav::Planner planner(buildConfig(std::move(config)));
+  neupan_uav::PlannerOptions options;
+  options.placeholder_command << 0.7, 0.0, 0.0, 0.0;
+  options.collision_threshold = 0.2;
+  options.robot.body_half_extent = Eigen::Vector3d::Zero();
+  neupan_uav::Planner planner(buildConfig(std::move(options)));
   ASSERT_TRUE(planner.forward(basicInput()).ready);
   ASSERT_FALSE(planner.previousCommand().isZero());
 

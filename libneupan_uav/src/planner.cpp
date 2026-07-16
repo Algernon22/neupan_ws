@@ -26,38 +26,6 @@ bool allFiniteState(const UavState& state) {
          std::isfinite(state.yaw_rate);
 }
 
-ObstaclePreselectorConfig makePreselectorConfig(const PlannerConfig& config) {
-  ObstaclePreselectorConfig preselect = config.preselect;
-  preselect.dt = config.step_time;
-  preselect.body_half_extent = config.robot.body_half_extent;
-  return preselect;
-}
-
-PanConfig makePanConfig(const PlannerConfig& config) {
-  const PanConfig& pan = config.pan;
-  if (pan.receding != config.receding) {
-    throw std::invalid_argument(
-        "PanConfig::receding must match PlannerConfig::receding");
-  }
-  if (pan.step_time != config.step_time) {
-    throw std::invalid_argument(
-        "PanConfig::step_time must match PlannerConfig::step_time");
-  }
-  if (pan.point_flow.receding != config.receding) {
-    throw std::invalid_argument(
-        "PointFlowConfig::receding must match PlannerConfig::receding");
-  }
-  if (pan.point_flow.dt != config.step_time) {
-    throw std::invalid_argument(
-        "PointFlowConfig::dt must match PlannerConfig::step_time");
-  }
-  if (!pan.point_flow.body_half_extent.isApprox(config.robot.body_half_extent)) {
-    throw std::invalid_argument(
-        "PointFlowConfig::body_half_extent must match RobotModelConfig");
-  }
-  return pan;
-}
-
 Eigen::VectorXd controlToDim(const Control& control, int control_dim) {
   Eigen::VectorXd out = Eigen::VectorXd::Zero(control_dim);
   const int take = std::min(4, control_dim);
@@ -67,10 +35,9 @@ Eigen::VectorXd controlToDim(const Control& control, int control_dim) {
 
 Eigen::VectorXd rolloutState(const Eigen::VectorXd& state,
                              const Eigen::VectorXd& control,
-                             const PlannerConfig& config) {
-  const PanConfig& pan = config.pan;
-  if (pan.has_nrmp_config &&
-      pan.nrmp.dynamics_A.rows() == state.size() &&
+                             const CompiledPlannerConfig& config) {
+  const PanConfig& pan = config.pan();
+  if (pan.nrmp.dynamics_A.rows() == state.size() &&
       pan.nrmp.dynamics_A.cols() == state.size() &&
       pan.nrmp.dynamics_B.rows() == state.size() &&
       pan.nrmp.dynamics_B.cols() == control.size() &&
@@ -81,36 +48,24 @@ Eigen::VectorXd rolloutState(const Eigen::VectorXd& state,
 
   Eigen::VectorXd next = state;
   if (state.size() >= 3 && control.size() >= 3) {
-    next.head<3>() += config.step_time * control.head<3>();
+    next.head<3>() += config.stepTime() * control.head<3>();
   }
   if (state.size() >= 4 && control.size() >= 4) {
-    next(3) += config.step_time * control(3);
+    next(3) += config.stepTime() * control(3);
   }
   return next;
 }
 
 }  // namespace
 
-Planner::Planner(const PlannerConfig& config)
+Planner::Planner(const CompiledPlannerConfig& config)
     : config_(config),
-      robot_(config.robot),
-      preselector_(makePreselectorConfig(config)),
-      farfield_guide_(config.farfield_guide),
-      pan_(makePanConfig(config)) {
-  if (config_.receding <= 0) {
-    throw std::invalid_argument("PlannerConfig::receding must be positive");
-  }
-  if (!(config_.step_time > 0.0) || !std::isfinite(config_.step_time)) {
-    throw std::invalid_argument("PlannerConfig::step_time must be finite and positive");
-  }
-  if (config_.collision_threshold < 0.0 ||
-      !std::isfinite(config_.collision_threshold)) {
-    throw std::invalid_argument(
-        "PlannerConfig::collision_threshold must be finite and non-negative");
-  }
-  const int control_dim =
-      config_.pan.has_nrmp_config ? config_.pan.nrmp.control_dim : 4;
-  control_buffer_ = Eigen::MatrixXd::Zero(control_dim, config_.receding);
+      robot_(config.robot()),
+      preselector_(config.preselect()),
+      farfield_guide_(config.farfieldGuide()),
+      pan_(config.pan()) {
+  const int control_dim = config_.pan().nrmp.control_dim;
+  control_buffer_ = Eigen::MatrixXd::Zero(control_dim, config_.receding());
   initializePathCache();
 }
 
@@ -227,7 +182,7 @@ PlannerOutput Planner::forward(const PlannerInput& input) {
   out.profile.fill_selected = selected.profile.fill_selected;
   out.min_distance = minBodyClearance(state, selected.points);
 
-  if (out.min_distance < config_.collision_threshold) {
+  if (out.min_distance < config_.collisionThreshold()) {
     out.command = Control::Zero();
     out.ready = true;
     out.reason = "planner_stop";
@@ -294,11 +249,9 @@ PanInput Planner::buildPanInput(const PlannerInput& input,
                                 const ObstacleSelection& selected,
                                 const Control& seed,
                                 FarfieldGuideProfile* farfield_profile) {
-  const bool has_nrmp_config = config_.pan.has_nrmp_config;
-  const int state_dim = has_nrmp_config ? config_.pan.nrmp.state_dim : 8;
-  const int control_dim =
-      has_nrmp_config ? config_.pan.nrmp.control_dim : 4;
-  const int T = config_.receding;
+  const int state_dim = config_.pan().nrmp.state_dim;
+  const int control_dim = config_.pan().nrmp.control_dim;
+  const int T = config_.receding();
   const DynamicsState dynamics_state = toDynamicsState(input.state, last_yaw_);
   const Eigen::Vector3d attitude_rpy = attitudeRpy(input.state, dynamics_state(3));
 
@@ -334,14 +287,14 @@ PanInput Planner::buildPanInput(const PlannerInput& input,
   if (hasInitialPath()) {
     Eigen::Matrix<Scalar, 4, Eigen::Dynamic> ref_geom = referenceGeometry();
     const FarfieldGuideResult farfield = farfield_guide_.apply(
-        ref_geom, input.obstacle_points, dynamics_state, config_.ref_speed,
-        config_.step_time, config_.receding);
+        ref_geom, input.obstacle_points, dynamics_state, config_.refSpeed(),
+        config_.stepTime(), config_.receding());
     ref_geom = farfield.reference_geometry;
     if (farfield_profile != nullptr) *farfield_profile = farfield.profile;
     std::vector<Control> ref_twist(static_cast<std::size_t>(T), Control::Zero());
     for (int t = 0; t < T; ++t) {
       ref_twist[static_cast<std::size_t>(t)] =
-          (ref_geom.col(t + 1) - ref_geom.col(t)) / config_.step_time;
+          (ref_geom.col(t + 1) - ref_geom.col(t)) / config_.stepTime();
     }
     for (int t = 0; t <= T; ++t) {
       Eigen::VectorXd ref_state = Eigen::VectorXd::Zero(state_dim);
@@ -384,23 +337,23 @@ Control Planner::desiredControl(const DynamicsState& state) const {
     const Eigen::Vector4d current = samplePath(path_progress_s_);
     const Eigen::Vector4d next = samplePath(
         path_progress_s_ +
-        std::max(0.0, config_.ref_speed) * config_.step_time);
+        std::max(0.0, config_.refSpeed()) * config_.stepTime());
     Control desired = Control::Zero();
-    desired = (next - current) / config_.step_time;
+    desired = (next - current) / config_.stepTime();
     return robot_.clampControl(desired);
   }
 
-  Control desired = config_.placeholder_command;
-  if (config_.has_goal) {
+  Control desired = config_.placeholderCommand();
+  if (config_.hasGoal()) {
     const Eigen::Vector3d pos = state.head<3>();
-    const Eigen::Vector3d delta = config_.goal_position - pos;
+    const Eigen::Vector3d delta = config_.goalPosition() - pos;
     const double distance = delta.norm();
     desired.setZero();
     if (distance > 1.0e-9) {
       desired.head<3>() =
-          delta / distance * std::max(0.0, config_.ref_speed);
+          delta / distance * std::max(0.0, config_.refSpeed());
     }
-    desired(3) = config_.placeholder_command(3);
+    desired(3) = config_.placeholderCommand()(3);
   }
   return robot_.clampControl(desired);
 }
@@ -410,14 +363,14 @@ bool Planner::hasArrived(const DynamicsState& state) {
   Eigen::Vector3d target = Eigen::Vector3d::Zero();
   if (hasInitialPath()) {
     target = path_waypoints_.back().head<3>();
-  } else if (config_.has_goal) {
-    target = config_.goal_position;
+  } else if (config_.hasGoal()) {
+    target = config_.goalPosition();
   } else {
     return false;
   }
 
   const Eigen::Vector3d pos = state.head<3>();
-  if ((pos - target).norm() <= config_.arrive_threshold) {
+  if ((pos - target).norm() <= config_.arriveThreshold()) {
     arrive_latched_ = true;
     return true;
   }
@@ -431,7 +384,7 @@ double Planner::minBodyClearance(const DynamicsState& state,
   }
 
   const Eigen::Vector3d pos = state.head<3>();
-  const Eigen::Vector3d half = config_.robot.body_half_extent.cwiseMax(0.0);
+  const Eigen::Vector3d half = config_.robot().body_half_extent.cwiseMax(0.0);
   double min_clearance = std::numeric_limits<double>::infinity();
   for (Eigen::Index col = 0; col < points.cols(); ++col) {
     const Eigen::Vector3d local = points.col(col) - pos;
@@ -442,7 +395,7 @@ double Planner::minBodyClearance(const DynamicsState& state,
 }
 
 void Planner::initializePathCache() {
-  path_waypoints_ = config_.initial_path.waypoints;
+  path_waypoints_ = config_.initialPath().waypoints;
   path_s_.clear();
   path_progress_s_ = 0.0;
   arrive_latched_ = false;
@@ -471,7 +424,7 @@ void Planner::updatePathProgress(const DynamicsState& state) {
   if (!hasInitialPath()) return;
   const double projected = projectPathProgress(state.head<3>());
   path_progress_s_ =
-      config_.initial_path.monotonic_progress
+      config_.initialPath().monotonic_progress
           ? std::max(path_progress_s_, projected)
           : projected;
   if (!path_s_.empty()) {
@@ -524,9 +477,9 @@ Eigen::Vector4d Planner::samplePath(double progress_s) const {
 }
 
 Eigen::Matrix<Scalar, 4, Eigen::Dynamic> Planner::referenceGeometry() const {
-  Eigen::Matrix<Scalar, 4, Eigen::Dynamic> ref(4, config_.receding + 1);
-  const double step_len = std::max(0.0, config_.ref_speed) * config_.step_time;
-  for (int t = 0; t <= config_.receding; ++t) {
+  Eigen::Matrix<Scalar, 4, Eigen::Dynamic> ref(4, config_.receding() + 1);
+  const double step_len = std::max(0.0, config_.refSpeed()) * config_.stepTime();
+  for (int t = 0; t <= config_.receding(); ++t) {
     ref.col(t) = samplePath(path_progress_s_ + step_len * t);
   }
   return ref;

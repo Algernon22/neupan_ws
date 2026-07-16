@@ -67,7 +67,6 @@ pan:
   iter_num: 1
   trajectory_threshold: 0.05  # 状态/控制轨迹 RMS 变化收敛阈值
   dune_threshold: 0.01        # DUNE mu/lambda RMS 变化收敛阈值
-  dune_max_num: 160
   nrmp_max_num: 20
   dune_select_nearest_ratio: 0.60
   dune_select_temporal_ratio: 0.20

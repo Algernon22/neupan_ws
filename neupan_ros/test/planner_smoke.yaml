@@ -21,5 +21,4 @@ preselect:
 
 pan:
   iter_num: 1
-  dune_max_num: 0
   nrmp_max_num: 0

@@ -69,6 +69,7 @@ class UavNode final : public rclcpp::Node {
 
   std::unique_ptr<neupan_uav::Planner> planner_;
   LoadedPlannerConfig loaded_config_;
+  std::optional<neupan_uav::CompiledPlannerConfig> planner_config_;
 
   std::string command_frame_ = "camera_init";
   std::string state_topic_ = "/Odometry";

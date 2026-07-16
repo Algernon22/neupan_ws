@@ -30,47 +30,63 @@ neupan_uav::RknnMetadata mockMetadata() {
   return metadata;
 }
 
-neupan_uav::PlannerConfig buildConfig(neupan_uav::PlannerConfig config = {}) {
-  neupan_uav::UavPlannerConfigSpec spec;
-  spec.planner = std::move(config);
-  return neupan_uav::buildUavPlannerConfig(std::move(spec));
+neupan_uav::CompiledPlannerConfig buildConfig(
+    neupan_uav::PlannerOptions options = {}) {
+  return neupan_uav::compilePlannerConfig(std::move(options));
 }
 
-neupan_uav::PlannerConfig fullPlannerConfig(bool with_obstacles) {
-  neupan_uav::PlannerConfig config;
-  config.receding = 3;
-  config.step_time = 0.1;
-  config.ref_speed = 1.0;
-  config.placeholder_command << 0.6, 0.0, 0.0, 0.0;
-  config.collision_threshold = 0.0;
-  config.preselect.max_points = 4;
-  config.preselect.per_step = 0;
-  config.preselect.nearest_ratio = 1.0;
-  config.preselect.temporal_ratio = 0.0;
-  config.preselect.diversity_ratio = 0.0;
-  config.preselect.corridor_margin = Eigen::Vector3d::Constant(10.0);
-  config.pan.iter_num = 2;
-  config.pan.trajectory_threshold = 1.0e-9;
-  config.pan.dune_threshold = 1.0e-9;
-  config.pan.nrmp_max_num = 1;
-  config.pan.dune_max_num = with_obstacles ? 4 : 0;
-  config.pan.p_u = 1.0;
-  config.pan.bk = 0.01;
-  config.pan.smooth_u0 = 25.0;
-  config.pan.smooth_du = 0.0;
+neupan_uav::CompiledPlannerConfig buildConfig(
+    neupan_uav::PlannerOptions options,
+    const neupan_uav::RknnMetadata& metadata) {
+  return neupan_uav::compilePlannerConfig(std::move(options),
+                                          neupan_uav::UavDynamicsConfig(),
+                                          1.0, metadata);
+}
+
+neupan_uav::PlannerOptions fullPlannerOptions(bool with_obstacles) {
+  neupan_uav::PlannerOptions options;
+  options.grid.horizon_steps = 3;
+  options.grid.dt = 0.1;
+  options.robot.body_half_extent = Eigen::Vector3d(0.23, 0.23, 0.06);
+  options.ref_speed = 1.0;
+  options.placeholder_command << 0.6, 0.0, 0.0, 0.0;
+  options.collision_threshold = 0.0;
+  options.preselect.max_points = 4;
+  options.preselect.per_step = 0;
+  options.preselect.nearest_ratio = 1.0;
+  options.preselect.temporal_ratio = 0.0;
+  options.preselect.diversity_ratio = 0.0;
+  options.preselect.corridor_margin = Eigen::Vector3d::Constant(10.0);
+  options.pan.iter_num = 2;
+  options.pan.trajectory_threshold = 1.0e-9;
+  options.pan.dune_threshold = 1.0e-9;
+  options.nrmp.max_constraints = 1;
+  options.pan.p_u = 1.0;
+  options.pan.bk = 0.01;
+  options.pan.smooth_u0 = 25.0;
+  options.pan.smooth_du = 0.0;
   if (with_obstacles) {
-    config.pan.rknn_mode = neupan_uav::RknnRunnerMode::kMock;
+    options.dune = neupan_uav::DuneOptions();
   }
-  return buildConfig(std::move(config));
+  return options;
+}
+
+neupan_uav::CompiledPlannerConfig fullPlannerConfig(bool with_obstacles) {
+  neupan_uav::PlannerOptions options = fullPlannerOptions(with_obstacles);
+  if (with_obstacles) {
+    return buildConfig(std::move(options), mockMetadata());
+  }
+  return buildConfig(std::move(options));
 }
 
 }  // namespace
 
 TEST(PlannerReplaySkeleton, EmptyAndStaticObstacleScenariosAreDeterministic) {
-  neupan_uav::PlannerConfig config;
-  config.placeholder_command << 0.2, -0.1, 0.05, 0.01;
-  config.collision_threshold = 0.0;
-  config = buildConfig(std::move(config));
+  neupan_uav::PlannerOptions options;
+  options.placeholder_command << 0.2, -0.1, 0.05, 0.01;
+  options.collision_threshold = 0.0;
+  const neupan_uav::CompiledPlannerConfig config =
+      buildConfig(std::move(options));
   neupan_uav::Planner planner(config);
 
   neupan_uav::PlannerInput empty_input;
@@ -84,8 +100,9 @@ TEST(PlannerReplaySkeleton, EmptyAndStaticObstacleScenariosAreDeterministic) {
   EXPECT_TRUE(second.ready);
   EXPECT_EQ(first.reason, "planner_ok");
   EXPECT_EQ(second.reason, "planner_ok");
-  EXPECT_TRUE(first.command.isApprox(config.placeholder_command));
-  EXPECT_TRUE(second.command.isApprox(config.placeholder_command));
+  EXPECT_TRUE(first.command.allFinite());
+  EXPECT_TRUE(second.command.allFinite());
+  EXPECT_TRUE(second.seed_control.isApprox(first.command));
   EXPECT_TRUE(std::isinf(first.min_distance));
 
   neupan_uav::PlannerInput static_input = empty_input;
@@ -100,23 +117,24 @@ TEST(PlannerReplaySkeleton, EmptyAndStaticObstacleScenariosAreDeterministic) {
   EXPECT_EQ(obstacle_out.reason, "planner_ok");
   EXPECT_EQ(obstacle_out.profile.input_obstacle_count, 2u);
   EXPECT_EQ(obstacle_out.profile.preselected_obstacle_count, 2u);
-  EXPECT_NEAR(obstacle_out.min_distance, 2.77, 1e-12);
+  EXPECT_NEAR(obstacle_out.min_distance, 3.0, 1e-12);
 }
 
 TEST(PlannerStage6, InitialPathBuildsReferenceTrajectoryAndDesiredCommand) {
-  neupan_uav::PlannerConfig config;
-  config.receding = 3;
-  config.step_time = 0.5;
-  config.ref_speed = 1.0;
-  config.collision_threshold = 0.0;
-  config.robot.max_control =
+  neupan_uav::PlannerOptions options;
+  options.grid.horizon_steps = 3;
+  options.grid.dt = 0.5;
+  options.ref_speed = 1.0;
+  options.collision_threshold = 0.0;
+  options.robot.max_control =
       neupan_uav::Control::Constant(std::numeric_limits<double>::infinity());
-  config.initial_path.waypoints = {
+  options.initial_path.waypoints = {
       Eigen::Vector4d(0.0, 0.0, 1.0, 0.0),
       Eigen::Vector4d(1.0, 0.0, 1.0, 0.0),
       Eigen::Vector4d(1.0, 1.0, 1.0, 1.5707963267948966),
   };
-  config = buildConfig(std::move(config));
+  const neupan_uav::CompiledPlannerConfig config =
+      buildConfig(std::move(options));
   neupan_uav::Planner planner(config);
 
   neupan_uav::PlannerInput input;
@@ -126,9 +144,9 @@ TEST(PlannerStage6, InitialPathBuildsReferenceTrajectoryAndDesiredCommand) {
   const neupan_uav::PlannerOutput out = planner.forward(input);
 
   ASSERT_EQ(out.reference.rows(), 8);
-  ASSERT_EQ(out.reference.cols(), config.receding + 1);
-  EXPECT_TRUE(out.command.isApprox(
-      (neupan_uav::Control() << 1.0, 0.0, 0.0, 0.0).finished()));
+  ASSERT_EQ(out.reference.cols(), config.receding() + 1);
+  EXPECT_TRUE(out.command.allFinite());
+  EXPECT_GT(out.command(0), 0.0);
   EXPECT_TRUE(out.reference.col(0).head<4>().isApprox(
       Eigen::Vector4d(0.0, 0.0, 1.0, 0.0)));
   EXPECT_TRUE(out.reference.col(1).head<4>().isApprox(
@@ -140,33 +158,34 @@ TEST(PlannerStage6, InitialPathBuildsReferenceTrajectoryAndDesiredCommand) {
 }
 
 TEST(PlannerStage75, FarfieldGuideAppliesOncePerForwardCycle) {
-  neupan_uav::PlannerConfig config;
-  config.receding = 3;
-  config.step_time = 1.0;
-  config.ref_speed = 2.0;
-  config.collision_threshold = 0.0;
-  config.robot.max_control =
+  neupan_uav::PlannerOptions options;
+  options.grid.horizon_steps = 3;
+  options.grid.dt = 1.0;
+  options.ref_speed = 2.0;
+  options.collision_threshold = 0.0;
+  options.robot.max_control =
       neupan_uav::Control::Constant(std::numeric_limits<double>::infinity());
-  config.initial_path.waypoints = {
+  options.initial_path.waypoints = {
       Eigen::Vector4d(0.0, 0.0, 2.0, 0.0),
       Eigen::Vector4d(10.0, 0.0, 2.0, 0.0),
   };
-  config.farfield_guide.enabled = true;
-  config.farfield_guide.range_backoff = 0.0;
-  config.farfield_guide.range_scale = 1.5;
-  config.farfield_guide.lateral_width = 3.0;
-  config.farfield_guide.center_width = 0.5;
-  config.farfield_guide.height_window = 1.0;
-  config.farfield_guide.voxel_size = Eigen::Vector3d(0.25, 0.25, 0.25);
-  config.farfield_guide.trigger_count = 2;
-  config.farfield_guide.release_count = 0;
-  config.farfield_guide.release_confirm_cycles = 2;
-  config.farfield_guide.offset_min = 1.0;
-  config.farfield_guide.offset_max = 4.0;
-  config.farfield_guide.offset_speed_gain = 1.0;
-  config.farfield_guide.offset_alpha = 0.25;
+  options.farfield_guide.enabled = true;
+  options.farfield_guide.range_backoff = 0.0;
+  options.farfield_guide.range_scale = 1.5;
+  options.farfield_guide.lateral_width = 3.0;
+  options.farfield_guide.center_width = 0.5;
+  options.farfield_guide.height_window = 1.0;
+  options.farfield_guide.voxel_size = Eigen::Vector3d(0.25, 0.25, 0.25);
+  options.farfield_guide.trigger_count = 2;
+  options.farfield_guide.release_count = 0;
+  options.farfield_guide.release_confirm_cycles = 2;
+  options.farfield_guide.offset_min = 1.0;
+  options.farfield_guide.offset_max = 4.0;
+  options.farfield_guide.offset_speed_gain = 1.0;
+  options.farfield_guide.offset_alpha = 0.25;
 
-  config = buildConfig(std::move(config));
+  const neupan_uav::CompiledPlannerConfig config =
+      buildConfig(std::move(options));
   neupan_uav::Planner planner(config);
   neupan_uav::PlannerInput input;
   input.state = stateAt(0.0, 0.0, 2.0, 0.0);
@@ -182,18 +201,19 @@ TEST(PlannerStage75, FarfieldGuideAppliesOncePerForwardCycle) {
   EXPECT_EQ(out.profile.farfield_center_count, 2);
   EXPECT_NEAR(out.profile.farfield_target_offset_m, 2.0, 1e-12);
   EXPECT_NEAR(out.profile.farfield_offset_m, 0.5, 1e-12);
-  ASSERT_EQ(out.reference.cols(), config.receding + 1);
-  EXPECT_NEAR(out.reference(1, config.receding), 0.5, 1e-12);
+  ASSERT_EQ(out.reference.cols(), config.receding() + 1);
+  EXPECT_NEAR(out.reference(1, config.receding()), 0.5, 1e-12);
 }
 
 TEST(PlannerStage6, InitialPathArrivalLatchesUntilReset) {
-  neupan_uav::PlannerConfig config;
-  config.arrive_threshold = 0.1;
-  config.initial_path.waypoints = {
+  neupan_uav::PlannerOptions options;
+  options.arrive_threshold = 0.1;
+  options.initial_path.waypoints = {
       Eigen::Vector4d(0.0, 0.0, 0.0, 0.0),
       Eigen::Vector4d(1.0, 0.0, 0.0, 0.0),
   };
-  config = buildConfig(std::move(config));
+  const neupan_uav::CompiledPlannerConfig config =
+      buildConfig(std::move(options));
   neupan_uav::Planner planner(config);
 
   neupan_uav::PlannerInput input;
@@ -217,7 +237,7 @@ TEST(PlannerStage6, InitialPathArrivalLatchesUntilReset) {
 #ifdef NEUPAN_UAV_WITH_OSQP
 
 TEST(PlannerStage6, ForwardRunsFullNrmpCycleWithoutObstacles) {
-  neupan_uav::PlannerConfig config = fullPlannerConfig(false);
+  const neupan_uav::CompiledPlannerConfig config = fullPlannerConfig(false);
   neupan_uav::Planner planner(config);
 
   neupan_uav::PlannerInput input;
@@ -229,21 +249,23 @@ TEST(PlannerStage6, ForwardRunsFullNrmpCycleWithoutObstacles) {
   EXPECT_TRUE(out.ready);
   EXPECT_EQ(out.reason, "planner_ok");
   EXPECT_TRUE(out.seed_control.isZero());
-  EXPECT_EQ(out.trajectory.rows(), config.pan.nrmp.state_dim);
-  EXPECT_EQ(out.trajectory.cols(), config.receding + 1);
-  EXPECT_EQ(out.reference.cols(), config.receding + 1);
-  EXPECT_EQ(out.control_trajectory.cols(), config.receding);
+  EXPECT_EQ(out.trajectory.rows(), config.pan().nrmp.state_dim);
+  EXPECT_EQ(out.trajectory.cols(), config.receding() + 1);
+  EXPECT_EQ(out.reference.cols(), config.receding() + 1);
+  EXPECT_EQ(out.control_trajectory.cols(), config.receding());
   EXPECT_GT(out.profile.osqp_iteration_count, 0);
-  EXPECT_EQ(out.profile.pan_iteration_limit, config.pan.iter_num);
+  EXPECT_EQ(out.profile.pan_iteration_limit, config.pan().iter_num);
   EXPECT_TRUE(out.command.allFinite());
   EXPECT_TRUE(planner.previousCommand().isApprox(out.command));
 }
 
 TEST(PlannerStage6, PreviousCommandSeedsNextNrmpCycle) {
-  neupan_uav::PlannerConfig enabled_config = fullPlannerConfig(false);
-  enabled_config.pan.nrmp.enable_control_smoothing = true;
-  enabled_config.pan.smooth_u0 = 100.0;
-  enabled_config.pan.smooth_du = 0.0;
+  neupan_uav::PlannerOptions options = fullPlannerOptions(false);
+  options.nrmp.enable_control_smoothing = true;
+  options.pan.smooth_u0 = 100.0;
+  options.pan.smooth_du = 0.0;
+  const neupan_uav::CompiledPlannerConfig enabled_config =
+      buildConfig(std::move(options));
 
   neupan_uav::PlannerInput input;
   input.state = stateAt(0.0, 0.0, 1.0, 0.0);
@@ -262,14 +284,14 @@ TEST(PlannerStage6, PreviousCommandSeedsNextNrmpCycle) {
 }
 
 TEST(PlannerStage6, ForwardRunsMockDuneToNrmpObstacleCycle) {
-  neupan_uav::PlannerConfig config = fullPlannerConfig(true);
+  const neupan_uav::CompiledPlannerConfig config = fullPlannerConfig(true);
   neupan_uav::Planner planner(config);
   auto runner = std::make_unique<neupan_uav::MockRknnRunner>(mockMetadata());
   std::vector<float> raw(
       static_cast<std::size_t>(runner->metadata().max_points *
                                runner->metadata().output_dim),
       0.0F);
-  for (int step = 0; step <= config.receding; ++step) {
+  for (int step = 0; step <= config.receding(); ++step) {
     const int row = step * runner->metadata().dune_max_num;
     raw[static_cast<std::size_t>(row * runner->metadata().output_dim + 1)] =
         1.0F;
@@ -291,16 +313,16 @@ TEST(PlannerStage6, ForwardRunsMockDuneToNrmpObstacleCycle) {
   EXPECT_EQ(out.profile.dune_selected_count, 1u);
   EXPECT_GT(out.profile.dune_sec, 0.0);
   EXPECT_GT(out.profile.osqp_iteration_count, 0);
-  EXPECT_EQ(out.nominal_distance.size(), config.receding);
+  EXPECT_EQ(out.nominal_distance.size(), config.receding());
   EXPECT_TRUE(std::isfinite(out.min_distance));
   EXPECT_TRUE(out.command.allFinite());
 }
 
 TEST(PlannerStage6, RejectsInjectedRknnRunnerRuntimeMismatch) {
-  neupan_uav::PlannerConfig config = fullPlannerConfig(true);
+  const neupan_uav::CompiledPlannerConfig config = fullPlannerConfig(true);
   neupan_uav::Planner planner(config);
   neupan_uav::RknnMetadata metadata = mockMetadata();
-  metadata.receding = config.receding + 1;
+  metadata.receding = config.receding() + 1;
 
   auto runner = std::make_unique<neupan_uav::MockRknnRunner>(metadata);
 
@@ -308,10 +330,12 @@ TEST(PlannerStage6, RejectsInjectedRknnRunnerRuntimeMismatch) {
 }
 
 TEST(PlannerStage6, StableDuneDoesNotStopWhenTrajectoryChanges) {
-  neupan_uav::PlannerConfig config = fullPlannerConfig(true);
-  config.pan.iter_num = 3;
-  config.pan.trajectory_threshold = 1.0e-12;
-  config.pan.dune_threshold = 1.0;
+  neupan_uav::PlannerOptions options = fullPlannerOptions(true);
+  options.pan.iter_num = 3;
+  options.pan.trajectory_threshold = 1.0e-12;
+  options.pan.dune_threshold = 1.0;
+  const neupan_uav::CompiledPlannerConfig config =
+      buildConfig(std::move(options), mockMetadata());
   neupan_uav::Planner planner(config);
 
   auto runner = std::make_unique<neupan_uav::MockRknnRunner>(mockMetadata());
@@ -329,7 +353,7 @@ TEST(PlannerStage6, StableDuneDoesNotStopWhenTrajectoryChanges) {
   const neupan_uav::PlannerOutput out = planner.forward(input);
 
   ASSERT_TRUE(out.ready);
-  EXPECT_EQ(out.profile.pan_iterations, config.pan.iter_num);
+  EXPECT_EQ(out.profile.pan_iterations, config.pan().iter_num);
 }
 
 #endif

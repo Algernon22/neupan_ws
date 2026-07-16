@@ -56,7 +56,6 @@ class PAN {
                     const DuneResult* dune_result);
   void resetIterationState();
   void resetObstacleState();
-  bool hasFullConfig() const;
   RknnRuntimeContract rknnRuntimeContract() const;
   void validateRknnRunner(const RknnRunner& runner) const;
 

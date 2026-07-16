@@ -70,7 +70,7 @@ UavNode::UavNode(const rclcpp::NodeOptions& options)
       std::max(0.0, 1.0e-3 * get_parameter("max_state_age_ms").as_double());
   max_cloud_age_s_ =
       std::max(0.0, 1.0e-3 * get_parameter("max_cloud_age_ms").as_double());
-  body_half_extent_ = loaded_config_.planner.robot.body_half_extent;
+  body_half_extent_ = loaded_config_.options.robot.body_half_extent;
   const std::vector<double> margin =
       get_parameter("self_filter_margin_xyz").as_double_array();
   if (margin.size() == 1) {
@@ -85,9 +85,9 @@ UavNode::UavNode(const rclcpp::NodeOptions& options)
   profile_planner_ = get_parameter("profile_planner").as_bool();
 
   const double horizon =
-      std::max(0.0, loaded_config_.planner.ref_speed) *
-      std::max(0.0, loaded_config_.planner.step_time) *
-      std::max(0, loaded_config_.planner.receding);
+      std::max(0.0, loaded_config_.options.ref_speed) *
+      std::max(0.0, loaded_config_.options.grid.dt) *
+      std::max(0, loaded_config_.options.grid.horizon_steps);
   const double roi_padding =
       std::max(0.0, get_parameter("roi_auto_xy_padding").as_double());
   const double roi_xy_max =
@@ -96,8 +96,8 @@ UavNode::UavNode(const rclcpp::NodeOptions& options)
       std::max(0.0, get_parameter("roi_auto_z_min").as_double());
   if (horizon > 0.0 || roi_z_min > 0.0) {
     double required_xy = horizon;
-    if (loaded_config_.planner.farfield_guide.enabled) {
-      const auto& farfield = loaded_config_.planner.farfield_guide;
+    if (loaded_config_.options.farfield_guide.enabled) {
+      const auto& farfield = loaded_config_.options.farfield_guide;
       const double farfield_far =
           std::max(0.0, horizon - std::max(0.0, farfield.range_backoff)) *
           std::max(1.0, farfield.range_scale);
@@ -108,8 +108,8 @@ UavNode::UavNode(const rclcpp::NodeOptions& options)
     double xy = required_xy + roi_padding;
     if (roi_xy_max > 0.0) xy = std::min(xy, roi_xy_max);
     roi_ = Eigen::Vector3d(xy, xy, roi_z_min);
-    if (loaded_config_.planner.farfield_guide.enabled && xy > 0.0) {
-      loaded_config_.planner.farfield_guide.range_far_limit = xy;
+    if (loaded_config_.options.farfield_guide.enabled && xy > 0.0) {
+      loaded_config_.options.farfield_guide.range_far_limit = xy;
     }
   }
 
@@ -118,15 +118,16 @@ UavNode::UavNode(const rclcpp::NodeOptions& options)
   const std::string rknn_core_mask =
       get_parameter("dune_rknn_core_mask").as_string();
   if (!rknn_metadata.empty()) {
-    loaded_config_.planner.pan.rknn_mode = neupan_uav::RknnRunnerMode::kRuntime;
-    loaded_config_.planner.pan.rknn_metadata_path =
-        resolvePath(config_dir, rknn_metadata);
-    loaded_config_.planner.pan.rknn_core_mask = rknn_core_mask;
-    loaded_config_.planner.pan.rknn_require_device =
-        get_parameter("dune_rknn_require_device").as_bool();
+    neupan_uav::DuneOptions dune =
+        loaded_config_.options.dune.value_or(neupan_uav::DuneOptions());
+    dune.metadata_path = resolvePath(config_dir, rknn_metadata);
+    dune.core_mask = rknn_core_mask;
+    dune.require_device = get_parameter("dune_rknn_require_device").as_bool();
+    loaded_config_.options.dune = dune;
   }
 
-  planner_ = std::make_unique<neupan_uav::Planner>(loaded_config_.planner);
+  planner_config_ = compileLoadedPlannerConfig(loaded_config_);
+  planner_ = std::make_unique<neupan_uav::Planner>(*planner_config_);
 
   RCLCPP_INFO(get_logger(), "Loaded C++ NeuPAN planner config: %s",
               planner_path.c_str());

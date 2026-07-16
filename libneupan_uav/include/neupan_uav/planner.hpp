@@ -16,14 +16,14 @@ namespace neupan_uav {
 
 class Planner {
  public:
-  explicit Planner(const PlannerConfig& config);
+  explicit Planner(const CompiledPlannerConfig& config);
 
   PlannerOutput forward(const PlannerInput& input);
   void setRknnRunner(std::unique_ptr<RknnRunner> runner);
 
   void reset();
 
-  const PlannerConfig& config() const { return config_; }
+  const CompiledPlannerConfig& config() const { return config_; }
   Control previousCommand() const { return previous_command_; }
 
  private:
@@ -45,7 +45,7 @@ class Planner {
   void clearPreviousCommand();
   void resetControlBuffer();
 
-  PlannerConfig config_;
+  CompiledPlannerConfig config_;
   RobotModel robot_;
   ObstaclePreselector preselector_;
   FarfieldGuide farfield_guide_;

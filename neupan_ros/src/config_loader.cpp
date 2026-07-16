@@ -44,7 +44,7 @@ neupan_uav::Control control4(const YAML::Node& node, const std::string& key,
   return out;
 }
 
-void loadRobot(const YAML::Node& root, neupan_uav::PlannerConfig& config,
+void loadRobot(const YAML::Node& root, neupan_uav::PlannerOptions& config,
                neupan_uav::UavDynamicsConfig& dynamics) {
   const YAML::Node robot = root["robot"];
   if (!robot) return;
@@ -69,7 +69,7 @@ void loadRobot(const YAML::Node& root, neupan_uav::PlannerConfig& config,
       robot, "velocity_weight_scale", dynamics.velocity_weight_scale);
 }
 
-void loadInitialPath(const YAML::Node& root, neupan_uav::PlannerConfig& config) {
+void loadInitialPath(const YAML::Node& root, neupan_uav::PlannerOptions& config) {
   const YAML::Node ipath = root["ipath"];
   if (!ipath) return;
   config.arrive_threshold =
@@ -94,7 +94,7 @@ void loadInitialPath(const YAML::Node& root, neupan_uav::PlannerConfig& config) 
   }
 }
 
-void loadPreselect(const YAML::Node& root, neupan_uav::PlannerConfig& config) {
+void loadPreselect(const YAML::Node& root, neupan_uav::PlannerOptions& config) {
   const YAML::Node pre = root["preselect"];
   if (!pre) return;
   config.preselect.enabled = scalar<bool>(pre, "enable", config.preselect.enabled);
@@ -123,7 +123,7 @@ void loadPreselect(const YAML::Node& root, neupan_uav::PlannerConfig& config) {
 }
 
 void loadFarfieldGuide(const YAML::Node& root,
-                       neupan_uav::PlannerConfig& config) {
+                       neupan_uav::PlannerOptions& config) {
   const YAML::Node far = root["farfield_guide"];
   if (!far) return;
   if (!far.IsMap()) {
@@ -160,7 +160,7 @@ void loadFarfieldGuide(const YAML::Node& root,
                   out.release_confirm_cycles);
 }
 
-void loadPan(const YAML::Node& root, neupan_uav::PlannerConfig& config) {
+void loadPan(const YAML::Node& root, neupan_uav::PlannerOptions& config) {
   const YAML::Node pan = root["pan"];
   if (!pan) return;
   config.pan.iter_num = scalar<int>(pan, "iter_num", config.pan.iter_num);
@@ -168,19 +168,20 @@ void loadPan(const YAML::Node& root, neupan_uav::PlannerConfig& config) {
       pan, "trajectory_threshold", config.pan.trajectory_threshold);
   config.pan.dune_threshold =
       scalar<double>(pan, "dune_threshold", config.pan.dune_threshold);
-  config.pan.dune_max_num =
-      scalar<int>(pan, "dune_max_num", config.pan.dune_max_num);
-  config.pan.nrmp_max_num =
-      scalar<int>(pan, "nrmp_max_num", config.pan.nrmp_max_num);
-  config.pan.dune.select_nearest_ratio = scalar<double>(
-      pan, "dune_select_nearest_ratio", config.pan.dune.select_nearest_ratio);
-  config.pan.dune.select_temporal_ratio = scalar<double>(
-      pan, "dune_select_temporal_ratio", config.pan.dune.select_temporal_ratio);
-  config.pan.dune.select_diversity_ratio = scalar<double>(
-      pan, "dune_select_diversity_ratio", config.pan.dune.select_diversity_ratio);
+  config.nrmp.max_constraints =
+      scalar<int>(pan, "nrmp_max_num", config.nrmp.max_constraints);
+  neupan_uav::DuneOptions dune =
+      config.dune.value_or(neupan_uav::DuneOptions());
+  dune.select_nearest_ratio = scalar<double>(
+      pan, "dune_select_nearest_ratio", dune.select_nearest_ratio);
+  dune.select_temporal_ratio = scalar<double>(
+      pan, "dune_select_temporal_ratio", dune.select_temporal_ratio);
+  dune.select_diversity_ratio = scalar<double>(
+      pan, "dune_select_diversity_ratio", dune.select_diversity_ratio);
+  config.dune = dune;
 }
 
-void loadAdjust(const YAML::Node& root, neupan_uav::PlannerConfig& config,
+void loadAdjust(const YAML::Node& root, neupan_uav::PlannerOptions& config,
                 double& state_weight_gain) {
   const YAML::Node adjust = root["adjust"];
   if (!adjust) return;
@@ -196,13 +197,13 @@ void loadAdjust(const YAML::Node& root, neupan_uav::PlannerConfig& config,
   config.pan.smooth_u0 =
       scalar<double>(adjust, "smooth_u0", config.pan.smooth_u0);
 
-  config.pan.nrmp.enable_control_smoothing = scalar<bool>(
+  config.nrmp.enable_control_smoothing = scalar<bool>(
       adjust, "enable_control_smoothing",
-      config.pan.nrmp.enable_control_smoothing);
+      config.nrmp.enable_control_smoothing);
 
   const YAML::Node solver_args = adjust["solver_args"];
   if (solver_args) {
-    auto& opts = config.pan.nrmp.solver_options;
+    auto& opts = config.nrmp.solver;
     opts.eps_abs = scalar<double>(solver_args, "eps_abs", opts.eps_abs);
     opts.eps_rel = scalar<double>(solver_args, "eps_rel", opts.eps_rel);
     opts.max_iter = scalar<int>(solver_args, "max_iter", opts.max_iter);
@@ -221,26 +222,39 @@ LoadedPlannerConfig loadPlannerConfig(const std::string& yaml_path) {
     throw std::runtime_error("planner config root must be a YAML mapping");
   }
 
-  neupan_uav::UavPlannerConfigSpec spec;
-  auto& config = spec.planner;
+  LoadedPlannerConfig loaded;
+  auto& config = loaded.options;
   config.collision_threshold =
       scalar<double>(root, "collision_threshold", config.collision_threshold);
-  config.receding = scalar<int>(root, "receding", config.receding);
-  config.step_time = scalar<double>(root, "step_time", config.step_time);
+  config.grid.horizon_steps =
+      scalar<int>(root, "receding", config.grid.horizon_steps);
+  config.grid.dt = scalar<double>(root, "step_time", config.grid.dt);
   config.ref_speed = scalar<double>(root, "ref_speed", config.ref_speed);
   config.arrive_threshold =
       scalar<double>(root, "arrive_threshold", config.arrive_threshold);
 
-  loadRobot(root, config, spec.dynamics);
+  loadRobot(root, config, loaded.dynamics);
   loadInitialPath(root, config);
   loadPreselect(root, config);
   loadFarfieldGuide(root, config);
   loadPan(root, config);
-  loadAdjust(root, config, spec.state_weight_gain);
+  loadAdjust(root, config, loaded.state_weight_gain);
 
-  LoadedPlannerConfig loaded;
-  loaded.planner = neupan_uav::buildUavPlannerConfig(std::move(spec));
   return loaded;
+}
+
+neupan_uav::CompiledPlannerConfig compileLoadedPlannerConfig(
+    const LoadedPlannerConfig& loaded) {
+  std::optional<neupan_uav::RknnMetadata> metadata;
+  neupan_uav::PlannerOptions options = loaded.options;
+  if (options.dune.has_value() && options.dune->metadata_path.empty()) {
+    options.dune.reset();
+  }
+  if (options.dune.has_value()) {
+    metadata = neupan_uav::RknnMetadata::load(options.dune->metadata_path);
+  }
+  return neupan_uav::compilePlannerConfig(
+      options, loaded.dynamics, loaded.state_weight_gain, metadata);
 }
 
 }  // namespace neupan_ros

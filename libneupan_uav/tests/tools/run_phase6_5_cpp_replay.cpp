@@ -661,123 +661,93 @@ Fixture readFixture(const std::string& path) {
   return fixture;
 }
 
-Eigen::MatrixXd continuousA(const RobotFixture& robot) {
-  Eigen::MatrixXd A = Eigen::MatrixXd::Zero(8, 8);
-  A(0, 4) = 1.0;
-  A(1, 5) = 1.0;
-  A(2, 6) = 1.0;
-  A(3, 7) = 1.0;
-  for (int i = 0; i < 3; ++i) {
-    A(4 + i, 4 + i) = -1.0 / robot.tau_velocity(i);
-  }
-  A(7, 7) = -1.0 / robot.tau_yaw_rate;
-  return A;
-}
-
-Eigen::MatrixXd continuousB(const RobotFixture& robot) {
-  Eigen::MatrixXd B = Eigen::MatrixXd::Zero(8, 4);
-  for (int i = 0; i < 3; ++i) {
-    B(4 + i, i) = robot.gain_velocity(i) / robot.tau_velocity(i);
-  }
-  B(7, 3) = robot.gain_yaw_rate / robot.tau_yaw_rate;
-  return B;
-}
-
-void discretizeDynamics(const RobotFixture& robot, double dt,
-                        Eigen::MatrixXd& A, Eigen::MatrixXd& B,
-                        Eigen::VectorXd& C) {
-  const Eigen::MatrixXd Ac = continuousA(robot);
-  const Eigen::MatrixXd Bc = continuousB(robot);
-  Eigen::MatrixXd aug = Eigen::MatrixXd::Zero(12, 12);
-  aug.block(0, 0, 8, 8) = Ac;
-  aug.block(0, 8, 8, 4) = Bc;
-  const Eigen::MatrixXd expm = (aug * dt).exp();
-  A = expm.block(0, 0, 8, 8);
-  B = expm.block(0, 8, 8, 4);
-  C = Eigen::VectorXd::Zero(8);
-}
-
-neupan_uav::PlannerConfig makePlannerConfig(const Fixture& fixture) {
-  neupan_uav::PlannerConfig config;
-  config.receding = fixture.receding;
-  config.step_time = fixture.step_time;
-  config.ref_speed = fixture.ref_speed;
-  config.collision_threshold = fixture.collision_threshold;
-  config.arrive_threshold = fixture.arrive_threshold;
-  config.robot.body_half_extent =
+neupan_uav::CompiledPlannerConfig makePlannerConfig(const Fixture& fixture) {
+  neupan_uav::PlannerOptions options;
+  neupan_uav::UavDynamicsConfig dynamics;
+  options.grid.horizon_steps = fixture.receding;
+  options.grid.dt = fixture.step_time;
+  options.ref_speed = fixture.ref_speed;
+  options.collision_threshold = fixture.collision_threshold;
+  options.arrive_threshold = fixture.arrive_threshold;
+  options.robot.body_half_extent =
       Eigen::Vector3d(fixture.robot.length * 0.5,
                       fixture.robot.width * 0.5,
                       fixture.robot.height * 0.5);
-  config.robot.max_control = fixture.robot.max_speed;
-  config.initial_path.waypoints = fixture.waypoints;
-  config.preselect.enabled = fixture.preselect.enable;
-  config.preselect.max_points = fixture.preselect.max_points;
-  config.preselect.per_step = fixture.preselect.per_step;
-  config.preselect.nearest_ratio = fixture.preselect.nearest_ratio;
-  config.preselect.temporal_ratio = fixture.preselect.temporal_ratio;
-  config.preselect.diversity_ratio = fixture.preselect.diversity_ratio;
-  config.preselect.corridor_margin = fixture.preselect.corridor_margin;
-  config.preselect.exact_margin = fixture.preselect.exact_margin;
-  config.farfield_guide.enabled = fixture.farfield.enable;
-  config.farfield_guide.range_backoff = fixture.farfield.range_backoff;
-  config.farfield_guide.range_scale = fixture.farfield.range_scale;
-  config.farfield_guide.range_far_limit = fixture.farfield.range_far_limit;
-  config.farfield_guide.lateral_width = fixture.farfield.lateral_width;
-  config.farfield_guide.center_width = fixture.farfield.center_width;
-  config.farfield_guide.height_window = fixture.farfield.height_window;
-  config.farfield_guide.voxel_size = fixture.farfield.voxel_size;
-  config.farfield_guide.trigger_count = fixture.farfield.trigger_count;
-  config.farfield_guide.offset_min = fixture.farfield.offset_min;
-  config.farfield_guide.offset_max = fixture.farfield.offset_max;
-  config.farfield_guide.offset_speed_gain =
+  options.robot.max_control = fixture.robot.max_speed;
+  options.initial_path.waypoints = fixture.waypoints;
+  if (!options.initial_path.waypoints.empty()) {
+    options.has_goal = true;
+    options.goal_position = options.initial_path.waypoints.back().head<3>();
+  }
+  options.preselect.enabled = fixture.preselect.enable;
+  options.preselect.max_points = fixture.preselect.max_points;
+  options.preselect.per_step = fixture.preselect.per_step;
+  options.preselect.nearest_ratio = fixture.preselect.nearest_ratio;
+  options.preselect.temporal_ratio = fixture.preselect.temporal_ratio;
+  options.preselect.diversity_ratio = fixture.preselect.diversity_ratio;
+  options.preselect.corridor_margin = fixture.preselect.corridor_margin;
+  options.preselect.exact_margin = fixture.preselect.exact_margin;
+  options.farfield_guide.enabled = fixture.farfield.enable;
+  options.farfield_guide.range_backoff = fixture.farfield.range_backoff;
+  options.farfield_guide.range_scale = fixture.farfield.range_scale;
+  options.farfield_guide.range_far_limit = fixture.farfield.range_far_limit;
+  options.farfield_guide.lateral_width = fixture.farfield.lateral_width;
+  options.farfield_guide.center_width = fixture.farfield.center_width;
+  options.farfield_guide.height_window = fixture.farfield.height_window;
+  options.farfield_guide.voxel_size = fixture.farfield.voxel_size;
+  options.farfield_guide.trigger_count = fixture.farfield.trigger_count;
+  options.farfield_guide.offset_min = fixture.farfield.offset_min;
+  options.farfield_guide.offset_max = fixture.farfield.offset_max;
+  options.farfield_guide.offset_speed_gain =
       fixture.farfield.offset_speed_gain;
-  config.farfield_guide.offset_alpha = fixture.farfield.offset_alpha;
-  config.farfield_guide.release_alpha = fixture.farfield.release_alpha;
-  config.farfield_guide.release_count = fixture.farfield.release_count;
-  config.farfield_guide.release_confirm_cycles =
+  options.farfield_guide.offset_alpha = fixture.farfield.offset_alpha;
+  options.farfield_guide.release_alpha = fixture.farfield.release_alpha;
+  options.farfield_guide.release_count = fixture.farfield.release_count;
+  options.farfield_guide.release_confirm_cycles =
       fixture.farfield.release_confirm_cycles;
 
-  config.pan.iter_num = fixture.pan.iter_num;
-  config.pan.trajectory_threshold = 1.0e-9;
-  config.pan.dune_threshold = 1.0e-9;
-  config.pan.dune_max_num = fixture.pan.dune_max_num;
-  config.pan.nrmp_max_num = fixture.pan.nrmp_max_num;
-  config.pan.has_nrmp_config = true;
-  config.pan.nrmp.receding = fixture.receding;
-  config.pan.nrmp.state_dim = 8;
-  config.pan.nrmp.control_dim = 4;
-  config.pan.nrmp.geom_dim = 4;
-  config.pan.nrmp.point_dim = 3;
-  config.pan.nrmp.max_num = fixture.pan.nrmp_max_num;
-  config.pan.nrmp.no_obs = fixture.pan.nrmp_max_num <= 0;
-  config.pan.nrmp.enable_control_smoothing =
+  options.pan.iter_num = fixture.pan.iter_num;
+  options.pan.trajectory_threshold = 1.0e-9;
+  options.pan.dune_threshold = 1.0e-9;
+  options.nrmp.max_constraints = fixture.pan.nrmp_max_num;
+  options.nrmp.enable_control_smoothing =
       fixture.adjust.enable_control_smoothing;
-  discretizeDynamics(fixture.robot, fixture.step_time,
-                     config.pan.nrmp.dynamics_A,
-                     config.pan.nrmp.dynamics_B,
-                     config.pan.nrmp.dynamics_C);
-  config.pan.nrmp.speed_bound = fixture.robot.max_speed;
-  config.pan.nrmp.acce_bound = fixture.robot.max_acce * fixture.step_time;
-  config.pan.nrmp.tracking_speed_bound =
-      fixture.robot.max_speed.cwiseAbs();
-  config.pan.nrmp.solver_options.eps_abs = fixture.adjust.eps_abs;
-  config.pan.nrmp.solver_options.eps_rel = fixture.adjust.eps_rel;
-  config.pan.nrmp.solver_options.max_iter = fixture.adjust.max_iter;
-  config.pan.nrmp.solver_options.verbose = fixture.adjust.verbose;
-  config.pan.nrmp.solver_options.polishing = fixture.adjust.polishing;
-  config.pan.nrmp.solver_options.warm_starting = fixture.adjust.warm_starting;
-  config.pan.state_weights = Eigen::VectorXd::Ones(8);
-  const double dynamic_weight = fixture.adjust.q_s *
-                                fixture.robot.velocity_weight_scale;
-  config.pan.state_weights.tail<4>().setConstant(dynamic_weight);
-  config.pan.p_u = fixture.adjust.p_u;
-  config.pan.smooth_du = fixture.adjust.smooth_du;
-  config.pan.smooth_u0 = fixture.adjust.smooth_u0;
-  config.pan.point_flow.receding = fixture.receding;
-  config.pan.point_flow.dune_max_num =
-      static_cast<std::size_t>(fixture.pan.dune_max_num);
-  config.pan.point_flow.body_half_extent = config.robot.body_half_extent;
-  return config;
+  options.nrmp.solver.eps_abs = fixture.adjust.eps_abs;
+  options.nrmp.solver.eps_rel = fixture.adjust.eps_rel;
+  options.nrmp.solver.max_iter = fixture.adjust.max_iter;
+  options.nrmp.solver.verbose = fixture.adjust.verbose;
+  options.nrmp.solver.polishing = fixture.adjust.polishing;
+  options.nrmp.solver.warm_starting = fixture.adjust.warm_starting;
+  options.pan.p_u = fixture.adjust.p_u;
+  options.pan.smooth_du = fixture.adjust.smooth_du;
+  options.pan.smooth_u0 = fixture.adjust.smooth_u0;
+
+  dynamics.max_acceleration = fixture.robot.max_acce;
+  dynamics.velocity_time_constant = fixture.robot.tau_velocity;
+  dynamics.velocity_gain = fixture.robot.gain_velocity;
+  dynamics.yaw_rate_time_constant = fixture.robot.tau_yaw_rate;
+  dynamics.yaw_rate_gain = fixture.robot.gain_yaw_rate;
+  dynamics.velocity_weight_scale = fixture.robot.velocity_weight_scale;
+
+  std::optional<neupan_uav::RknnMetadata> metadata;
+  if (fixture.pan.dune_max_num > 0) {
+    options.dune = neupan_uav::DuneOptions();
+    metadata = neupan_uav::RknnMetadata();
+    metadata->receding = fixture.receding;
+    metadata->dune_max_num = fixture.pan.dune_max_num;
+    metadata->max_points = static_cast<int>(std::max(
+        fixture.preselect.max_points,
+        static_cast<std::size_t>(fixture.pan.dune_max_num)));
+    metadata->output_dim = 6;
+    metadata->input_shape = {{1, metadata->max_points, 3}};
+    metadata->output_shape = {{1, metadata->max_points, 6}};
+    metadata->half_extent = options.robot.body_half_extent;
+    metadata->scene_scale = Eigen::Vector3d::Ones();
+    metadata->clearance_scale = Eigen::Vector3d::Ones();
+  }
+
+  return neupan_uav::compilePlannerConfig(
+      options, dynamics, fixture.adjust.q_s, metadata);
 }
 
 void writeVector(std::ostream& out, const Eigen::VectorXd& vector) {

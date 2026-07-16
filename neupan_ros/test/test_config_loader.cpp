@@ -14,10 +14,10 @@ std::string plannerConfigPath() {
 
 TEST(ConfigLoader, LoadsCurrentPlannerYamlShape) {
   const auto loaded = neupan_ros::loadPlannerConfig(plannerConfigPath());
-  const auto& config = loaded.planner;
+  const auto& config = loaded.options;
 
-  EXPECT_EQ(config.receding, 25);
-  EXPECT_NEAR(config.step_time, 0.1, 1e-12);
+  EXPECT_EQ(config.grid.horizon_steps, 25);
+  EXPECT_NEAR(config.grid.dt, 0.1, 1e-12);
   EXPECT_NEAR(config.ref_speed, 3.0, 1e-12);
   EXPECT_NEAR(config.collision_threshold, 0.15, 1e-12);
   EXPECT_NEAR(config.arrive_threshold, 0.8, 1e-12);
@@ -36,8 +36,12 @@ TEST(ConfigLoader, LoadsCurrentPlannerYamlShape) {
   EXPECT_EQ(config.pan.iter_num, 1);
   EXPECT_NEAR(config.pan.trajectory_threshold, 0.05, 1e-12);
   EXPECT_NEAR(config.pan.dune_threshold, 0.01, 1e-12);
-  EXPECT_EQ(config.pan.dune_max_num, 160);
-  EXPECT_EQ(config.pan.nrmp_max_num, 20);
+  ASSERT_TRUE(config.dune.has_value());
+  EXPECT_TRUE(config.dune->metadata_path.empty());
+  EXPECT_NEAR(config.dune->select_nearest_ratio, 0.60, 1e-12);
+  EXPECT_NEAR(config.dune->select_temporal_ratio, 0.20, 1e-12);
+  EXPECT_NEAR(config.dune->select_diversity_ratio, 0.20, 1e-12);
+  EXPECT_EQ(config.nrmp.max_constraints, 20);
   EXPECT_NEAR(config.pan.p_u, 1.5, 1e-12);
   EXPECT_NEAR(config.pan.eta, 6.0, 1e-12);
   EXPECT_NEAR(config.pan.d_min, 0.8, 1e-12);
@@ -46,11 +50,11 @@ TEST(ConfigLoader, LoadsCurrentPlannerYamlShape) {
   EXPECT_NEAR(config.pan.bk, 0.18, 1e-12);
   EXPECT_NEAR(config.pan.smooth_du, 0.8, 1e-12);
   EXPECT_NEAR(config.pan.smooth_u0, 6.0, 1e-12);
-  EXPECT_TRUE(config.pan.nrmp.enable_control_smoothing);
-  EXPECT_EQ(config.pan.nrmp.solver_options.max_iter, 1000);
-  EXPECT_FALSE(config.pan.nrmp.solver_options.verbose);
-  EXPECT_FALSE(config.pan.nrmp.solver_options.polishing);
-  EXPECT_TRUE(config.pan.nrmp.solver_options.warm_starting);
+  EXPECT_TRUE(config.nrmp.enable_control_smoothing);
+  EXPECT_EQ(config.nrmp.solver.max_iter, 1000);
+  EXPECT_FALSE(config.nrmp.solver.verbose);
+  EXPECT_FALSE(config.nrmp.solver.polishing);
+  EXPECT_TRUE(config.nrmp.solver.warm_starting);
   EXPECT_TRUE(config.farfield_guide.enabled);
   EXPECT_NEAR(config.farfield_guide.range_backoff, 1.0, 1e-12);
   EXPECT_NEAR(config.farfield_guide.range_scale, 1.5, 1e-12);
@@ -73,7 +77,12 @@ TEST(ConfigLoader, LoadedConfigConstructsPlanner) {
   const auto loaded = neupan_ros::loadPlannerConfig(plannerConfigPath());
 
   try {
-    neupan_uav::Planner planner(loaded.planner);
+    const neupan_uav::CompiledPlannerConfig config =
+        neupan_ros::compileLoadedPlannerConfig(loaded);
+    EXPECT_FALSE(config.pan().dune.has_value());
+    EXPECT_EQ(config.receding(), 25);
+    EXPECT_EQ(config.pan().nrmp.max_num, 20);
+    neupan_uav::Planner planner(config);
     neupan_uav::PlannerInput input;
     input.state.position_world << 0.0, 0.0, 2.0;
     input.obstacle_points = neupan_uav::emptyPointMatrix();

@@ -110,9 +110,9 @@ PAN::PAN()
 
 PAN::PAN(PanConfig config)
     : config_(std::move(config)),
-      nrmp_(config_.has_nrmp_config ? NRMP(config_.nrmp) : NRMP()),
-      dune_(config_.has_dune_config ? DunePostprocessor(config_.dune)
-                                    : DunePostprocessor()),
+      nrmp_(config_.nrmp),
+      dune_(config_.dune.has_value() ? DunePostprocessor(*config_.dune)
+                                     : DunePostprocessor()),
       point_flow_(config_.point_flow) {
   if (config_.rknn_mode == RknnRunnerMode::kRuntime) {
     RknnRunnerConfig runner_config;
@@ -131,15 +131,12 @@ void PAN::setRknnRunner(std::unique_ptr<RknnRunner> runner) {
   rknn_runner_ = std::move(runner);
 }
 
-bool PAN::hasFullConfig() const {
-  return config_.has_nrmp_config && nrmp_.hasBackend();
-}
-
 RknnRuntimeContract PAN::rknnRuntimeContract() const {
   RknnRuntimeContract contract;
-  contract.receding = config_.receding;
-  contract.dune_max_num = config_.dune_max_num;
-  contract.output_dim = config_.dune.edge_dim;
+  contract.receding = config_.grid.horizon_steps;
+  contract.dune_max_num =
+      config_.dune.has_value() ? static_cast<int>(config_.dune->dune_max_num) : 0;
+  contract.output_dim = config_.dune.has_value() ? config_.dune->edge_dim : 0;
   contract.body_half_extent = config_.point_flow.body_half_extent;
   return contract;
 }
@@ -149,31 +146,9 @@ void PAN::validateRknnRunner(const RknnRunner& runner) const {
 }
 
 PanOutput PAN::forward(const PanInput& input) {
-  if (!hasFullConfig()) {
-    NrmpInput nrmp_input;
-    nrmp_input.seed_control = input.seed_control;
-    nrmp_input.desired_control = input.desired_control;
-    const NrmpResult nrmp = nrmp_.solve(nrmp_input);
-
-    PanOutput out;
-    out.command = nrmp.control;
-    out.trajectory = input.nominal_states;
-    out.reference = input.reference_states;
-    out.control_trajectory = input.nominal_controls;
-    if (input.nominal_controls.cols() > 0) {
-      out.nominal_distance =
-          Eigen::RowVectorXd::Zero(input.nominal_controls.cols());
-    }
-    out.profile.osqp_status = nrmp.status;
-    out.profile.osqp_iteration_count = nrmp.iterations;
-    out.profile.dune_selected_count =
-        static_cast<std::size_t>(input.obstacle_points.cols());
-    return out;
-  }
-
   const int state_dim = config_.nrmp.state_dim;
   const int control_dim = config_.nrmp.control_dim;
-  const int receding = config_.receding;
+  const int receding = config_.grid.horizon_steps;
   validateTrajectory(input.nominal_states, state_dim, receding + 1,
                      "PanInput::nominal_states");
   validateTrajectory(input.nominal_controls, control_dim, receding,
@@ -185,7 +160,7 @@ PanOutput PAN::forward(const PanInput& input) {
 
   const bool has_obstacles =
       input.obstacle_points.rows() == 3 && input.obstacle_points.cols() > 0 &&
-      config_.nrmp_max_num > 0 && config_.dune_max_num > 0;
+      config_.nrmp.max_num > 0 && config_.dune.has_value();
   if (!has_obstacles) resetObstacleState();
 
   PanOutput out;
@@ -249,7 +224,7 @@ PanOutput PAN::forward(const PanInput& input) {
 }
 
 DuneResult PAN::runDune(const PanInput& input) {
-  if (!config_.has_dune_config) {
+  if (!config_.dune.has_value()) {
     DunePostprocessor fallback;
     return fallback.process(input.obstacle_points);
   }
@@ -334,7 +309,7 @@ NrmpInput PAN::buildNrmpInput(const PanInput& input,
       for (int d = 0; d < point_dim; ++d) {
         nrmp_input.fa_batch(row, d) = lambda(d, k);
       }
-      const Eigen::VectorXf h = config_.dune.h;
+      const Eigen::VectorXf h = config_.dune->h;
       const double lambda_dot_point =
           lambda.col(k).head(point_dim).dot(points.col(k).head(point_dim));
       const double mu_dot_h = mu.col(k).dot(h);
@@ -370,7 +345,7 @@ bool PAN::stopCriteria(const NrmpResult& nrmp_result,
       !previous_mu_batch_.empty()) {
     const auto [mu_diff, lambda_diff] =
         duneDiff(*dune_result, previous_mu_batch_, previous_lambda_batch_,
-                 config_.nrmp_max_num);
+                 config_.nrmp.max_num);
     const double dune_diff = std::hypot(mu_diff, lambda_diff);
     dune_converged = dune_diff < config_.dune_threshold;
   }
