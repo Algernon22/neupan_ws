@@ -738,7 +738,8 @@ neupan_uav::PlannerConfig makePlannerConfig(const Fixture& fixture) {
       fixture.farfield.release_confirm_cycles;
 
   config.pan.iter_num = fixture.pan.iter_num;
-  config.pan.iter_threshold = 1.0e-9;
+  config.pan.trajectory_threshold = 1.0e-9;
+  config.pan.dune_threshold = 1.0e-9;
   config.pan.dune_max_num = fixture.pan.dune_max_num;
   config.pan.nrmp_max_num = fixture.pan.nrmp_max_num;
   config.pan.has_nrmp_config = true;

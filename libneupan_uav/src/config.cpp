@@ -62,6 +62,16 @@ void validateSpec(const UavPlannerConfigSpec& spec) {
   if (planner.pan.nrmp_max_num < 0) {
     throw std::invalid_argument("PanConfig::nrmp_max_num must be non-negative");
   }
+  if (!(planner.pan.trajectory_threshold > 0.0) ||
+      !std::isfinite(planner.pan.trajectory_threshold)) {
+    throw std::invalid_argument(
+        "PanConfig::trajectory_threshold must be finite and positive");
+  }
+  if (!(planner.pan.dune_threshold > 0.0) ||
+      !std::isfinite(planner.pan.dune_threshold)) {
+    throw std::invalid_argument(
+        "PanConfig::dune_threshold must be finite and positive");
+  }
   if (!nonNegativeBoundVector(dynamics.max_acceleration)) {
     throw std::invalid_argument(
         "UavDynamicsConfig::max_acceleration must be non-negative");

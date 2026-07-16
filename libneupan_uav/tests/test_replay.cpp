@@ -50,7 +50,8 @@ neupan_uav::PlannerConfig fullPlannerConfig(bool with_obstacles) {
   config.preselect.diversity_ratio = 0.0;
   config.preselect.corridor_margin = Eigen::Vector3d::Constant(10.0);
   config.pan.iter_num = 2;
-  config.pan.iter_threshold = 1.0e-9;
+  config.pan.trajectory_threshold = 1.0e-9;
+  config.pan.dune_threshold = 1.0e-9;
   config.pan.nrmp_max_num = 1;
   config.pan.dune_max_num = with_obstacles ? 4 : 0;
   config.pan.p_u = 1.0;
@@ -304,6 +305,31 @@ TEST(PlannerStage6, RejectsInjectedRknnRunnerRuntimeMismatch) {
   auto runner = std::make_unique<neupan_uav::MockRknnRunner>(metadata);
 
   EXPECT_THROW(planner.setRknnRunner(std::move(runner)), std::invalid_argument);
+}
+
+TEST(PlannerStage6, StableDuneDoesNotStopWhenTrajectoryChanges) {
+  neupan_uav::PlannerConfig config = fullPlannerConfig(true);
+  config.pan.iter_num = 3;
+  config.pan.trajectory_threshold = 1.0e-12;
+  config.pan.dune_threshold = 1.0;
+  neupan_uav::Planner planner(config);
+
+  auto runner = std::make_unique<neupan_uav::MockRknnRunner>(mockMetadata());
+  runner->setOutputFull(std::vector<float>(
+      static_cast<std::size_t>(runner->metadata().max_points *
+                               runner->metadata().output_dim),
+      0.0F));
+  planner.setRknnRunner(std::move(runner));
+
+  neupan_uav::PlannerInput input;
+  input.state = stateAt(0.0, 0.0, 1.0, 0.0);
+  input.obstacle_points.resize(3, 1);
+  input.obstacle_points << 2.0, 0.0, 1.0;
+
+  const neupan_uav::PlannerOutput out = planner.forward(input);
+
+  ASSERT_TRUE(out.ready);
+  EXPECT_EQ(out.profile.pan_iterations, config.pan.iter_num);
 }
 
 #endif

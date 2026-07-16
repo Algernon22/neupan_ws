@@ -60,8 +60,13 @@ farfield_guide:
   release_confirm_cycles: 3
 
 pan:
+  # iter_num 是每个规划周期内 DUNE + NRMP 最多运行的轮数。
+  # 当 iter_num >= 2 时，PAN 会比较当前轮和上一轮结果：
+  # 轨迹变化小于 trajectory_threshold 且 DUNE 变化小于 dune_threshold 时提前停止。
+  # 当前 iter_num: 1 只运行一轮，因此两个收敛阈值不会参与停止判断。
   iter_num: 1
-  iter_threshold: 0.05
+  trajectory_threshold: 0.05  # 状态/控制轨迹 RMS 变化收敛阈值
+  dune_threshold: 0.01        # DUNE mu/lambda RMS 变化收敛阈值
   dune_max_num: 160
   nrmp_max_num: 20
   dune_select_nearest_ratio: 0.60

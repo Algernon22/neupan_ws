@@ -25,7 +25,8 @@ struct PanConfig {
   int receding = 10;
   double step_time = 0.1;
   int iter_num = 2;
-  double iter_threshold = 0.1;
+  double trajectory_threshold = 0.05;  // 状态/控制轨迹 RMS 变化收敛阈值
+  double dune_threshold = 0.01;        // DUNE mu/lambda RMS 变化收敛阈值
   int dune_max_num = 0;
   int nrmp_max_num = 0;
   RknnRunnerMode rknn_mode = RknnRunnerMode::kDisabled;

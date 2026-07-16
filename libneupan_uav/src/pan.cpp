@@ -46,11 +46,12 @@ Eigen::VectorXd defaultStateWeights(int state_dim) {
   return Eigen::VectorXd::Ones(std::max(1, state_dim));
 }
 
-double matrixDiffNorm(const Eigen::MatrixXd& a, const Eigen::MatrixXd& b) {
+double matrixDiffRms(const Eigen::MatrixXd& a, const Eigen::MatrixXd& b) {
   if (a.rows() != b.rows() || a.cols() != b.cols()) {
     return std::numeric_limits<double>::infinity();
   }
-  return (a - b).norm();
+  if (a.size() == 0) return 0.0;
+  return (a - b).norm() / std::sqrt(static_cast<double>(a.size()));
 }
 
 std::pair<double, double> duneDiff(
@@ -65,7 +66,8 @@ std::pair<double, double> duneDiff(
   const std::size_t steps = std::min(current.mu_batch.size(), previous_mu.size());
   double mu_sq = 0.0;
   double lambda_sq = 0.0;
-  int effect_num = 0;
+  std::size_t mu_count = 0;
+  std::size_t lambda_count = 0;
   for (std::size_t step = 0; step < steps; ++step) {
     const DuneMatrix& mu = current.mu_batch[step];
     const DuneMatrix& prev_mu = previous_mu[step];
@@ -86,11 +88,16 @@ std::pair<double, double> duneDiff(
     lambda_sq += (lambda.leftCols(cols) - prev_lambda.leftCols(cols))
                      .template cast<double>()
                      .squaredNorm();
-    effect_num = std::max(effect_num, cols);
+    mu_count += static_cast<std::size_t>(mu.rows() * cols);
+    lambda_count += static_cast<std::size_t>(lambda.rows() * cols);
   }
-  if (effect_num <= 0) return {0.0, 0.0};
-  return {std::sqrt(mu_sq) / static_cast<double>(effect_num),
-          std::sqrt(lambda_sq) / static_cast<double>(effect_num)};
+  const double mu_rms =
+      mu_count == 0 ? 0.0 : std::sqrt(mu_sq / static_cast<double>(mu_count));
+  const double lambda_rms = lambda_count == 0
+                                ? 0.0
+                                : std::sqrt(lambda_sq /
+                                            static_cast<double>(lambda_count));
+  return {mu_rms, lambda_rms};
 }
 
 }  // namespace
@@ -351,17 +358,21 @@ bool PAN::stopCriteria(const NrmpResult& nrmp_result,
   }
 
   const double state_diff =
-      matrixDiffNorm(nrmp_result.state_trajectory, previous_nominal_states_);
+      matrixDiffRms(nrmp_result.state_trajectory, previous_nominal_states_);
   const double control_diff =
-      matrixDiffNorm(nrmp_result.control_trajectory, previous_nominal_controls_);
-  double diff = state_diff * state_diff + control_diff * control_diff;
+      matrixDiffRms(nrmp_result.control_trajectory, previous_nominal_controls_);
+  const double trajectory_diff = std::hypot(state_diff, control_diff);
+  const bool trajectory_converged =
+      trajectory_diff < config_.trajectory_threshold;
 
+  bool dune_converged = true;
   if (dune_result != nullptr && !dune_result->mu_batch.empty() &&
       !previous_mu_batch_.empty()) {
     const auto [mu_diff, lambda_diff] =
         duneDiff(*dune_result, previous_mu_batch_, previous_lambda_batch_,
                  config_.nrmp_max_num);
-    diff = mu_diff * mu_diff + lambda_diff * lambda_diff;
+    const double dune_diff = std::hypot(mu_diff, lambda_diff);
+    dune_converged = dune_diff < config_.dune_threshold;
   }
 
   previous_nominal_states_ = nrmp_result.state_trajectory;
@@ -370,7 +381,7 @@ bool PAN::stopCriteria(const NrmpResult& nrmp_result,
       dune_result == nullptr ? std::vector<DuneMatrix>() : dune_result->mu_batch;
   previous_lambda_batch_ = dune_result == nullptr ? std::vector<DuneMatrix>()
                                                   : dune_result->lambda_batch;
-  return diff < config_.iter_threshold;
+  return trajectory_converged && dune_converged;
 }
 
 void PAN::resetIterationState() {

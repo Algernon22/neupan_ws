@@ -164,8 +164,10 @@ void loadPan(const YAML::Node& root, neupan_uav::PlannerConfig& config) {
   const YAML::Node pan = root["pan"];
   if (!pan) return;
   config.pan.iter_num = scalar<int>(pan, "iter_num", config.pan.iter_num);
-  config.pan.iter_threshold =
-      scalar<double>(pan, "iter_threshold", config.pan.iter_threshold);
+  config.pan.trajectory_threshold = scalar<double>(
+      pan, "trajectory_threshold", config.pan.trajectory_threshold);
+  config.pan.dune_threshold =
+      scalar<double>(pan, "dune_threshold", config.pan.dune_threshold);
   config.pan.dune_max_num =
       scalar<int>(pan, "dune_max_num", config.pan.dune_max_num);
   config.pan.nrmp_max_num =

@@ -34,6 +34,8 @@ TEST(ConfigLoader, LoadsCurrentPlannerYamlShape) {
   EXPECT_NEAR(config.preselect.corridor_margin(0), 6.0, 1e-12);
   EXPECT_NEAR(config.preselect.exact_margin(2), 0.25, 1e-12);
   EXPECT_EQ(config.pan.iter_num, 1);
+  EXPECT_NEAR(config.pan.trajectory_threshold, 0.05, 1e-12);
+  EXPECT_NEAR(config.pan.dune_threshold, 0.01, 1e-12);
   EXPECT_EQ(config.pan.dune_max_num, 160);
   EXPECT_EQ(config.pan.nrmp_max_num, 20);
   EXPECT_NEAR(config.pan.p_u, 1.5, 1e-12);
