@@ -600,8 +600,6 @@ ObsPointNetRknnRunner::ObsPointNetRknnRunner(
 
 ObsPointNetRknnRunner::~ObsPointNetRknnRunner() = default;
 
-bool ObsPointNetRknnRunner::available() const { return impl_ != nullptr; }
-
 const RknnMetadata& ObsPointNetRknnRunner::metadata() const {
   return impl_->metadata;
 }
@@ -678,8 +676,6 @@ ObsPointNetRknnRunner::ObsPointNetRknnRunner(const RknnRunnerConfig&) {
 }
 
 ObsPointNetRknnRunner::~ObsPointNetRknnRunner() = default;
-
-bool ObsPointNetRknnRunner::available() const { return false; }
 
 const RknnMetadata& ObsPointNetRknnRunner::metadata() const {
   throw std::runtime_error(

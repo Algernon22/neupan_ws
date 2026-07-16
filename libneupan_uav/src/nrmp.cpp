@@ -77,7 +77,6 @@ NrmpResult placeholderSolve(const NrmpInput& input) {
   NrmpResult result;
   result.control = input.desired_control;
   result.status = 0;
-  result.status_val = 0;
   result.iterations = 0;
   result.status_text = "placeholder";
   return result;
@@ -656,9 +655,6 @@ class NRMP::Backend {
   Backend(const Backend&) = delete;
   Backend& operator=(const Backend&) = delete;
 
-  int setupCount() const { return setup_count_; }
-  int solveCount() const { return solve_count_; }
-
   NrmpResult solve(const NrmpInput& input) {
     validateSolveInput(input);
     fillValues(input);
@@ -1004,7 +1000,6 @@ class NRMP::Backend {
     }
 
     result.status = solver_->info ? static_cast<int>(solver_->info->status_val) : 0;
-    result.status_val = result.status;
     result.status_text = solver_->info ? solver_->info->status : "";
     result.iterations = solver_->info ? static_cast<int>(solver_->info->iter) : 0;
     result.solve_sec = solver_->info ? static_cast<double>(solver_->info->solve_time) : 0.0;

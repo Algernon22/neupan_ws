@@ -13,10 +13,6 @@ namespace neupan_uav {
 
 using DuneMatrix = Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic>;
 
-struct RawMuBatch {
-  DuneMatrix values;
-};
-
 struct DunePostprocessorConfig {
   int receding = 0;
   int point_dim = 3;

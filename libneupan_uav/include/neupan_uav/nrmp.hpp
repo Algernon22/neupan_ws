@@ -63,7 +63,6 @@ struct NrmpResult {
   Eigen::MatrixXd control_trajectory;
   Eigen::RowVectorXd nominal_distance;
   int status = 0;
-  int status_val = 0;
   int iterations = 0;
   double solve_sec = 0.0;
   double run_time_sec = 0.0;

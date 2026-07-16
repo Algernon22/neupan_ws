@@ -19,7 +19,6 @@ namespace neupan_uav {
 
 enum class RknnRunnerMode {
   kDisabled,
-  kMock,
   kRuntime,
 };
 

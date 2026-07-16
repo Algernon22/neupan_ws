@@ -265,7 +265,6 @@ struct PanFixture {
 };
 
 struct FrameFixture {
-  double stamp_sec = 0.0;
   Eigen::VectorXd state;
   neupan_uav::PointMatrix obstacle_points = neupan_uav::emptyPointMatrix();
 };
@@ -597,9 +596,7 @@ FrameFixture readFrame(JsonReader& reader) {
     do {
       const std::string key = reader.string();
       reader.expect(':');
-      if (key == "stamp_sec") {
-        frame.stamp_sec = reader.number();
-      } else if (key == "state") {
+      if (key == "state") {
         frame.state = readVector(reader);
       } else if (key == "obstacle_points") {
         frame.obstacle_points = readPointRows(reader);
@@ -798,7 +795,6 @@ void writeReport(const std::string& path, const Fixture& fixture,
     if (i > 0) out << ",\n";
     out << "    {\n";
     out << "      \"frame_index\": " << i << ",\n";
-    out << "      \"stamp_sec\": " << fixture.frames[i].stamp_sec << ",\n";
     out << "      \"ready\": " << (output.ready ? "true" : "false") << ",\n";
     out << "      \"reason\": \"" << output.reason << "\",\n";
     out << "      \"arrive\": " << (output.arrive ? "true" : "false") << ",\n";
@@ -861,7 +857,6 @@ int main(int argc, char** argv) {
       neupan_uav::PlannerInput input;
       input.state = uavStateFromFixture(frame.state);
       input.obstacle_points = frame.obstacle_points;
-      input.stamp_sec = frame.stamp_sec;
       outputs.push_back(planner.forward(input));
     }
     writeReport(args.output_path, fixture, outputs);

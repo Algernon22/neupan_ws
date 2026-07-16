@@ -84,7 +84,7 @@ TEST(NRMP, SolvesNoObstacleProblem) {
   EXPECT_EQ(result.state_trajectory.cols(), config.receding + 1);
   EXPECT_EQ(result.control_trajectory.rows(), config.control_dim);
   EXPECT_EQ(result.control_trajectory.cols(), config.receding);
-  EXPECT_GE(result.status_val, 1);
+  EXPECT_GE(result.status, 1);
   EXPECT_GT(result.iterations, 0);
   EXPECT_NEAR(result.control(0), 0.5, 0.15);
 }
@@ -107,7 +107,7 @@ TEST(NRMP, SolvesWithObstacleCoefficients) {
   const neupan_uav::NrmpResult result = nrmp.solve(input);
 
   EXPECT_EQ(result.nominal_distance.size(), config.receding);
-  EXPECT_GE(result.status_val, 1);
+  EXPECT_GE(result.status, 1);
   EXPECT_TRUE(result.control.allFinite());
 }
 

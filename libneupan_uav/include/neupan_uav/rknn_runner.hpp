@@ -74,7 +74,6 @@ class RknnRunner {
  public:
   virtual ~RknnRunner() = default;
 
-  virtual bool available() const { return false; }
   virtual const RknnMetadata& metadata() const = 0;
   virtual const RknnProfile& profile() const = 0;
   virtual RknnFloatMatrix inferRawMu(
@@ -87,7 +86,6 @@ class MockRknnRunner final : public RknnRunner {
  public:
   explicit MockRknnRunner(RknnMetadata metadata);
 
-  bool available() const override { return true; }
   const RknnMetadata& metadata() const override { return metadata_; }
   const RknnProfile& profile() const override { return profile_; }
   RknnFloatMatrix inferRawMu(
@@ -113,7 +111,6 @@ class ObsPointNetRknnRunner final : public RknnRunner {
   ObsPointNetRknnRunner(const ObsPointNetRknnRunner&) = delete;
   ObsPointNetRknnRunner& operator=(const ObsPointNetRknnRunner&) = delete;
 
-  bool available() const override;
   const RknnMetadata& metadata() const override;
   const RknnProfile& profile() const override;
   RknnFloatMatrix inferRawMu(

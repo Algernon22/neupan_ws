@@ -32,8 +32,6 @@ struct PanOutput {
   Trajectory reference;
   Eigen::MatrixXd control_trajectory;
   Eigen::RowVectorXd nominal_distance;
-  PointMatrix dune_points = emptyPointMatrix();
-  PointMatrix nrmp_points = emptyPointMatrix();
   double min_distance = std::numeric_limits<double>::infinity();
   PlannerProfile profile;
 };
@@ -55,7 +53,6 @@ class PAN {
   bool stopCriteria(const NrmpResult& nrmp_result,
                     const DuneResult* dune_result);
   void resetIterationState();
-  void resetObstacleState();
   RknnRuntimeContract rknnRuntimeContract() const;
   void validateRknnRunner(const RknnRunner& runner) const;
 

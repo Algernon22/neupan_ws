@@ -302,7 +302,6 @@ UavNode::PlannerResult UavNode::runPlannerOnce(const PlannerJob& job) {
   input.state = job.state.state;
   input.obstacle_points =
       pointsBodyToWorld(job.cloud.points_body, job.state.state);
-  input.stamp_sec = stampNanosecondsToSeconds(job.state.stamp_ns);
   const neupan_uav::PlannerOutput out = planner_->forward(input);
 
   result.ready = out.ready;

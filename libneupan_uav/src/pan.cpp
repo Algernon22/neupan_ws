@@ -161,7 +161,6 @@ PanOutput PAN::forward(const PanInput& input) {
   const bool has_obstacles =
       input.obstacle_points.rows() == 3 && input.obstacle_points.cols() > 0 &&
       config_.nrmp.max_num > 0 && config_.dune.has_value();
-  if (!has_obstacles) resetObstacleState();
 
   PanOutput out;
   out.trajectory = input.nominal_states;
@@ -191,7 +190,6 @@ PanOutput PAN::forward(const PanInput& input) {
           dune_result.profile.continuity_selected;
       out.profile.diversity_selected = dune_result.profile.diversity_selected;
       out.min_distance = dune_result.min_distance;
-      out.dune_points = dune_result.selected_points;
     }
 
     const auto nrmp_start = Clock::now();
@@ -217,9 +215,6 @@ PanOutput PAN::forward(const PanInput& input) {
   }
 
   out.profile.forward_sec = elapsedSeconds(total_start);
-  if (has_dune_result) {
-    out.nrmp_points = dune_result.selected_points;
-  }
   return out;
 }
 
@@ -365,11 +360,6 @@ void PAN::resetIterationState() {
   previous_mu_batch_.clear();
   previous_lambda_batch_.clear();
   has_previous_iteration_ = false;
-}
-
-void PAN::resetObstacleState() {
-  previous_mu_batch_.clear();
-  previous_lambda_batch_.clear();
 }
 
 }  // namespace neupan_uav

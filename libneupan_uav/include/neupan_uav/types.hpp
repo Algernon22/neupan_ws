@@ -16,8 +16,6 @@ using DynamicsState = Eigen::Matrix<Scalar, 8, 1>;
 using PointMatrix = Eigen::Matrix<Scalar, 3, Eigen::Dynamic>;
 using Trajectory = Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic>;
 
-inline Control zeroControl() { return Control::Zero(); }
-
 inline PointMatrix emptyPointMatrix() { return PointMatrix(3, 0); }
 
 struct UavState {
@@ -152,7 +150,6 @@ struct PlannerInput {
   UavState state;
   PointMatrix obstacle_points = emptyPointMatrix();
   PointMatrix obstacle_velocities = emptyPointMatrix();
-  double stamp_sec = 0.0;
   bool valid = true;
   bool stale = false;
 };

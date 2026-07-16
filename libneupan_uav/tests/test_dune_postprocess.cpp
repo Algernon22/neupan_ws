@@ -513,7 +513,7 @@ TEST(DunePostprocessor, MatchesPythonGeneratedRandomParityFixture) {
   }
 }
 
-TEST(DunePostprocessor, EmptyRawMuBatchDoesNotRequireHardware) {
+TEST(DunePostprocessor, EmptyRawMuDoesNotRequireHardware) {
   const neupan_uav::DunePostprocessorConfig config = aabbConfig(2, 2);
   neupan_uav::DunePostprocessor postprocessor(config);
   neupan_uav::DuneMatrix raw(0, config.edge_dim);
