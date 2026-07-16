@@ -8,6 +8,14 @@
 
 namespace {
 
+neupan_uav::UavState stateAt(double x, double y, double z, double yaw) {
+  neupan_uav::UavState state;
+  state.position_world << x, y, z;
+  state.attitude_world_body =
+      Eigen::Quaterniond(Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()));
+  return state;
+}
+
 neupan_uav::RknnMetadata mockMetadata() {
   neupan_uav::RknnMetadata metadata;
   metadata.receding = 3;
@@ -65,7 +73,7 @@ TEST(PlannerReplaySkeleton, EmptyAndStaticObstacleScenariosAreDeterministic) {
   neupan_uav::Planner planner(config);
 
   neupan_uav::PlannerInput empty_input;
-  empty_input.state = Eigen::Vector4d(0.0, 0.0, 1.0, 0.0);
+  empty_input.state = stateAt(0.0, 0.0, 1.0, 0.0);
   empty_input.obstacle_points = neupan_uav::emptyPointMatrix();
 
   const neupan_uav::PlannerOutput first = planner.forward(empty_input);
@@ -111,19 +119,22 @@ TEST(PlannerStage6, InitialPathBuildsReferenceTrajectoryAndDesiredCommand) {
   neupan_uav::Planner planner(config);
 
   neupan_uav::PlannerInput input;
-  input.state = Eigen::Vector4d(0.0, 0.0, 1.0, 0.0);
+  input.state = stateAt(0.0, 0.0, 1.0, 0.0);
   input.obstacle_points = neupan_uav::emptyPointMatrix();
 
   const neupan_uav::PlannerOutput out = planner.forward(input);
 
-  ASSERT_EQ(out.reference.rows(), 4);
+  ASSERT_EQ(out.reference.rows(), 8);
   ASSERT_EQ(out.reference.cols(), config.receding + 1);
   EXPECT_TRUE(out.command.isApprox(
       (neupan_uav::Control() << 1.0, 0.0, 0.0, 0.0).finished()));
-  EXPECT_TRUE(out.reference.col(0).isApprox(Eigen::Vector4d(0.0, 0.0, 1.0, 0.0)));
-  EXPECT_TRUE(out.reference.col(1).isApprox(Eigen::Vector4d(0.5, 0.0, 1.0, 0.0)));
-  EXPECT_TRUE(out.reference.col(2).isApprox(Eigen::Vector4d(1.0, 0.0, 1.0, 0.0)));
-  EXPECT_TRUE(out.reference.col(3).isApprox(
+  EXPECT_TRUE(out.reference.col(0).head<4>().isApprox(
+      Eigen::Vector4d(0.0, 0.0, 1.0, 0.0)));
+  EXPECT_TRUE(out.reference.col(1).head<4>().isApprox(
+      Eigen::Vector4d(0.5, 0.0, 1.0, 0.0)));
+  EXPECT_TRUE(out.reference.col(2).head<4>().isApprox(
+      Eigen::Vector4d(1.0, 0.0, 1.0, 0.0)));
+  EXPECT_TRUE(out.reference.col(3).head<4>().isApprox(
       Eigen::Vector4d(1.0, 0.5, 1.0, 0.7853981633974483)));
 }
 
@@ -157,7 +168,7 @@ TEST(PlannerStage75, FarfieldGuideAppliesOncePerForwardCycle) {
   config = buildConfig(std::move(config));
   neupan_uav::Planner planner(config);
   neupan_uav::PlannerInput input;
-  input.state = Eigen::Vector4d(0.0, 0.0, 2.0, 0.0);
+  input.state = stateAt(0.0, 0.0, 2.0, 0.0);
   input.obstacle_points.resize(3, 2);
   input.obstacle_points << 6.2, 6.6,
                            0.0, 0.1,
@@ -185,14 +196,14 @@ TEST(PlannerStage6, InitialPathArrivalLatchesUntilReset) {
   neupan_uav::Planner planner(config);
 
   neupan_uav::PlannerInput input;
-  input.state = Eigen::Vector4d(0.95, 0.0, 0.0, 0.0);
+  input.state = stateAt(0.95, 0.0, 0.0, 0.0);
   input.obstacle_points = neupan_uav::emptyPointMatrix();
 
   const neupan_uav::PlannerOutput arrived = planner.forward(input);
   EXPECT_TRUE(arrived.arrive);
   EXPECT_EQ(arrived.reason, "arrived");
 
-  input.state = Eigen::Vector4d(0.5, 0.0, 0.0, 0.0);
+  input.state = stateAt(0.5, 0.0, 0.0, 0.0);
   const neupan_uav::PlannerOutput still_arrived = planner.forward(input);
   EXPECT_TRUE(still_arrived.arrive);
 
@@ -209,7 +220,7 @@ TEST(PlannerStage6, ForwardRunsFullNrmpCycleWithoutObstacles) {
   neupan_uav::Planner planner(config);
 
   neupan_uav::PlannerInput input;
-  input.state = Eigen::Vector4d(0.0, 0.0, 1.0, 0.0);
+  input.state = stateAt(0.0, 0.0, 1.0, 0.0);
   input.obstacle_points = neupan_uav::emptyPointMatrix();
 
   const neupan_uav::PlannerOutput out = planner.forward(input);
@@ -234,7 +245,7 @@ TEST(PlannerStage6, PreviousCommandSeedsNextNrmpCycle) {
   enabled_config.pan.smooth_du = 0.0;
 
   neupan_uav::PlannerInput input;
-  input.state = Eigen::Vector4d(0.0, 0.0, 1.0, 0.0);
+  input.state = stateAt(0.0, 0.0, 1.0, 0.0);
   input.obstacle_points = neupan_uav::emptyPointMatrix();
 
   neupan_uav::Planner enabled_planner(enabled_config);
@@ -266,7 +277,7 @@ TEST(PlannerStage6, ForwardRunsMockDuneToNrmpObstacleCycle) {
   planner.setRknnRunner(std::move(runner));
 
   neupan_uav::PlannerInput input;
-  input.state = Eigen::Vector4d(0.0, 0.0, 1.0, 0.0);
+  input.state = stateAt(0.0, 0.0, 1.0, 0.0);
   input.obstacle_points.resize(3, 1);
   input.obstacle_points << 2.0, 0.0, 1.0;
 

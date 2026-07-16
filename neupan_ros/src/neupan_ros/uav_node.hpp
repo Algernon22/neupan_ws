@@ -1,5 +1,6 @@
 #pragma once
 
+#include "neupan_ros/adapters.hpp"
 #include "neupan_ros/config_loader.hpp"
 #include "neupan_uav/types.hpp"
 #include "neupan_uav/planner.hpp"
@@ -27,9 +28,7 @@ class UavNode final : public rclcpp::Node {
  private:
   struct LatestState {
     std::uint64_t stamp_ns = 0;
-    Eigen::Matrix<double, 6, 1> state6 =
-        Eigen::Matrix<double, 6, 1>::Zero();
-    Eigen::VectorXd planner_state;
+    neupan_uav::UavState state;
     double receive_time_s = 0.0;
   };
 
@@ -74,6 +73,7 @@ class UavNode final : public rclcpp::Node {
   std::string command_frame_ = "camera_init";
   std::string state_topic_ = "/Odometry";
   std::string pointcloud_topic_ = "/cloud_registered_body";
+  TwistLinearFrame odom_twist_linear_frame_ = TwistLinearFrame::kBody;
   double update_rate_ = 20.0;
   double planner_rate_ = 10.0;
   double max_state_age_s_ = 0.15;

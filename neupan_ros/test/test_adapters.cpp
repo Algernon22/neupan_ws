@@ -68,12 +68,41 @@ TEST(Adapters, OdometryToStatesMatchesPythonConvention) {
   odom.twist.twist.linear.z = 0.5;
   odom.twist.twist.angular.z = 0.4;
 
-  const neupan_ros::OdomStates states = neupan_ros::odometryToStates(odom);
+  const neupan_uav::UavState state = neupan_ros::odometryToState(odom);
+  const neupan_uav::DynamicsState dynamics = neupan_uav::toDynamicsState(state);
 
-  EXPECT_NEAR(states.state6(0), 10.0, 1e-12);
-  EXPECT_NEAR(states.state6(1), 20.0, 1e-12);
-  EXPECT_NEAR(states.state6(2), 30.0, 1e-12);
-  EXPECT_NEAR(states.state6(5), M_PI / 2.0, 1e-12);
+  EXPECT_NEAR(state.position_world(0), 10.0, 1e-12);
+  EXPECT_NEAR(state.position_world(1), 20.0, 1e-12);
+  EXPECT_NEAR(state.position_world(2), 30.0, 1e-12);
+  EXPECT_NEAR(dynamics(3), M_PI / 2.0, 1e-12);
+  EXPECT_NEAR(state.velocity_world(0), 0.0, 1e-12);
+  EXPECT_NEAR(state.velocity_world(1), 1.0, 1e-12);
+  EXPECT_NEAR(state.velocity_world(2), 0.5, 1e-12);
+  EXPECT_NEAR(state.yaw_rate, 0.4, 1e-12);
+}
+
+TEST(Adapters, OdometryCanAcceptWorldFrameTwist) {
+  nav_msgs::msg::Odometry odom;
+  odom.pose.pose.orientation = yawQuaternion(M_PI / 2.0);
+  odom.twist.twist.linear.x = 1.0;
+  odom.twist.twist.linear.y = 2.0;
+  odom.twist.twist.linear.z = 3.0;
+
+  const neupan_uav::UavState state =
+      neupan_ros::odometryToState(odom, neupan_ros::TwistLinearFrame::kWorld);
+
+  EXPECT_NEAR(state.velocity_world(0), 1.0, 1e-12);
+  EXPECT_NEAR(state.velocity_world(1), 2.0, 1e-12);
+  EXPECT_NEAR(state.velocity_world(2), 3.0, 1e-12);
+}
+
+TEST(Adapters, UnwrapNearKeepsYawContinuous) {
+  const double reference = M_PI - 0.05;
+  const double wrapped = -M_PI + 0.04;
+
+  const double unwrapped = neupan_uav::unwrapNear(wrapped, reference);
+
+  EXPECT_NEAR(unwrapped, M_PI + 0.04, 1e-12);
 }
 
 TEST(Adapters, ReadsFiniteXyzPoints) {
@@ -193,13 +222,15 @@ TEST(Adapters, RejectsBigEndianPointCloud) {
 }
 
 TEST(Adapters, TransformsBodyPointsToWorld) {
-  Eigen::Matrix<double, 6, 1> state6;
-  state6 << 10.0, 20.0, 30.0, 0.0, 0.0, M_PI / 2.0;
+  neupan_uav::UavState state;
+  state.position_world << 10.0, 20.0, 30.0;
+  state.attitude_world_body =
+      Eigen::Quaterniond(Eigen::AngleAxisd(M_PI / 2.0, Eigen::Vector3d::UnitZ()));
   neupan_uav::PointMatrix body(3, 2);
   body << 1.0, 0.0, 0.0, 2.0, 0.0, 0.0;
 
   const neupan_uav::PointMatrix world =
-      neupan_ros::pointsBodyToWorld(body, state6);
+      neupan_ros::pointsBodyToWorld(body, state);
   ASSERT_EQ(world.cols(), 2);
   EXPECT_NEAR(world(0, 0), 10.0, 1e-12);
   EXPECT_NEAR(world(1, 0), 21.0, 1e-12);

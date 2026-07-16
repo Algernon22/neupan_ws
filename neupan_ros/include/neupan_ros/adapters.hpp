@@ -15,25 +15,22 @@
 
 namespace neupan_ros {
 
-struct OdomStates {
-  Eigen::Matrix<double, 6, 1> state6 = Eigen::Matrix<double, 6, 1>::Zero();
+enum class TwistLinearFrame {
+  kBody,
+  kWorld,
 };
 
-struct Rpy {
-  double roll = 0.0;
-  double pitch = 0.0;
-  double yaw = 0.0;
-};
-
-Rpy quaternionToRpy(const geometry_msgs::msg::Quaternion& q);
+Eigen::Quaterniond quaternionFromMsg(const geometry_msgs::msg::Quaternion& q);
 Eigen::Matrix3d quaternionToRotationMatrix(
     const geometry_msgs::msg::Quaternion& q);
-OdomStates odometryToStates(const nav_msgs::msg::Odometry& msg);
+neupan_uav::UavState odometryToState(
+    const nav_msgs::msg::Odometry& msg,
+    TwistLinearFrame twist_linear_frame = TwistLinearFrame::kBody);
 std::optional<neupan_uav::PointMatrix> readXyzPoints(
     const sensor_msgs::msg::PointCloud2& msg);
 neupan_uav::PointMatrix pointsBodyToWorld(
     const neupan_uav::PointMatrix& points_body,
-    const Eigen::Matrix<double, 6, 1>& state6);
+    const neupan_uav::UavState& state);
 double minBodyClearance(const neupan_uav::PointMatrix& points_body,
                         const Eigen::Vector3d& body_half_extent);
 

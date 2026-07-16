@@ -17,11 +17,13 @@ bool allFinite(const Eigen::MatrixXd& matrix) {
   return true;
 }
 
-bool allFiniteVector(const Eigen::VectorXd& vector) {
-  for (Eigen::Index i = 0; i < vector.size(); ++i) {
-    if (!std::isfinite(vector(i))) return false;
-  }
-  return true;
+bool allFiniteState(const UavState& state) {
+  return state.position_world.allFinite() && state.velocity_world.allFinite() &&
+         std::isfinite(state.attitude_world_body.w()) &&
+         std::isfinite(state.attitude_world_body.x()) &&
+         std::isfinite(state.attitude_world_body.y()) &&
+         std::isfinite(state.attitude_world_body.z()) &&
+         std::isfinite(state.yaw_rate);
 }
 
 ObstaclePreselectorConfig makePreselectorConfig(const PlannerConfig& config) {
@@ -54,14 +56,6 @@ PanConfig makePanConfig(const PlannerConfig& config) {
         "PointFlowConfig::body_half_extent must match RobotModelConfig");
   }
   return pan;
-}
-
-Eigen::VectorXd copyStatePrefix(const Eigen::VectorXd& state, int state_dim) {
-  Eigen::VectorXd out = Eigen::VectorXd::Zero(state_dim);
-  const Eigen::Index take =
-      std::min<Eigen::Index>(state.size(), static_cast<Eigen::Index>(state_dim));
-  if (take > 0) out.head(take) = state.head(take);
-  return out;
 }
 
 Eigen::VectorXd controlToDim(const Control& control, int control_dim) {
@@ -140,7 +134,7 @@ PlannerOutput Planner::forward(const PlannerInput& input) {
     out.seed_control = seed;
     return out;
   }
-  if (input.state.size() < 4 || !allFiniteVector(input.state)) {
+  if (!allFiniteState(input.state)) {
     clearPreviousCommand();
     PlannerOutput out = invalidOutput("invalid_state");
     out.seed_control = seed;
@@ -163,19 +157,21 @@ PlannerOutput Planner::forward(const PlannerInput& input) {
     return out;
   }
 
-  updatePathProgress(input.state);
+  const DynamicsState state = toDynamicsState(input.state, last_yaw_);
+  updatePathProgress(state);
+  last_yaw_ = state(3);
 
   PlannerOutput out;
   out.seed_control = seed;
   out.profile.input_obstacle_count =
       static_cast<std::size_t>(input.obstacle_points.cols());
 
-  if (hasArrived(input.state)) {
+  if (hasArrived(state)) {
     out.command = Control::Zero();
     out.ready = true;
     out.reason = "arrived";
     out.arrive = true;
-    out.min_distance = minBodyClearance(input.state, input.obstacle_points);
+    out.min_distance = minBodyClearance(state, input.obstacle_points);
     clearPreviousCommand();
     resetControlBuffer();
     out.profile.forward_sec =
@@ -229,7 +225,7 @@ PlannerOutput Planner::forward(const PlannerInput& input) {
   out.profile.diversity_candidates = selected.profile.diversity_candidates;
   out.profile.diversity_selected = selected.profile.diversity_selected;
   out.profile.fill_selected = selected.profile.fill_selected;
-  out.min_distance = minBodyClearance(input.state, selected.points);
+  out.min_distance = minBodyClearance(state, selected.points);
 
   if (out.min_distance < config_.collision_threshold) {
     out.command = Control::Zero();
@@ -281,6 +277,7 @@ void Planner::reset() {
   preselector_.reset();
   farfield_guide_.reset();
   path_progress_s_ = 0.0;
+  last_yaw_ = std::numeric_limits<double>::quiet_NaN();
   arrive_latched_ = false;
 }
 
@@ -298,14 +295,14 @@ PanInput Planner::buildPanInput(const PlannerInput& input,
                                 const Control& seed,
                                 FarfieldGuideProfile* farfield_profile) {
   const bool has_nrmp_config = config_.pan.has_nrmp_config;
-  const int state_dim =
-      has_nrmp_config ? config_.pan.nrmp.state_dim
-                      : std::max<int>(4, static_cast<int>(input.state.size()));
+  const int state_dim = has_nrmp_config ? config_.pan.nrmp.state_dim : 8;
   const int control_dim =
       has_nrmp_config ? config_.pan.nrmp.control_dim : 4;
   const int T = config_.receding;
+  const DynamicsState dynamics_state = toDynamicsState(input.state, last_yaw_);
+  const Eigen::Vector3d attitude_rpy = attitudeRpy(input.state, dynamics_state(3));
 
-  const Control desired = desiredControl(input.state);
+  const Control desired = desiredControl(dynamics_state);
   const Eigen::VectorXd desired_vec = controlToDim(desired, control_dim);
   const Eigen::VectorXd seed_vec = controlToDim(seed, control_dim);
 
@@ -320,10 +317,7 @@ PanInput Planner::buildPanInput(const PlannerInput& input,
   pan_input.nominal_controls.resize(control_dim, T);
   pan_input.reference_controls.resize(control_dim, T);
 
-  Eigen::VectorXd nominal = copyStatePrefix(input.state, state_dim);
-  if (input.state.size() == 6 && state_dim >= 4) {
-    nominal(3) = input.state(5);
-  }
+  Eigen::VectorXd nominal = dynamics_state;
   Eigen::VectorXd reference = nominal;
   pan_input.nominal_states.col(0) = nominal;
   for (int t = 0; t < T; ++t) {
@@ -340,7 +334,7 @@ PanInput Planner::buildPanInput(const PlannerInput& input,
   if (hasInitialPath()) {
     Eigen::Matrix<Scalar, 4, Eigen::Dynamic> ref_geom = referenceGeometry();
     const FarfieldGuideResult farfield = farfield_guide_.apply(
-        ref_geom, input.obstacle_points, input.state, config_.ref_speed,
+        ref_geom, input.obstacle_points, dynamics_state, config_.ref_speed,
         config_.step_time, config_.receding);
     ref_geom = farfield.reference_geometry;
     if (farfield_profile != nullptr) *farfield_profile = farfield.profile;
@@ -377,23 +371,15 @@ PanInput Planner::buildPanInput(const PlannerInput& input,
 
   pan_input.attitude_horizon.resize(3, T + 1);
   for (int t = 0; t <= T; ++t) {
-    if (input.state.size() >= 6) {
-      pan_input.attitude_horizon(0, t) = input.state(3);
-      pan_input.attitude_horizon(1, t) = input.state(4);
-      pan_input.attitude_horizon(2, t) = input.state(5);
-    } else {
-      pan_input.attitude_horizon(0, t) = 0.0;
-      pan_input.attitude_horizon(1, t) = 0.0;
-      pan_input.attitude_horizon(2, t) =
-          pan_input.nominal_states.rows() >= 4
-              ? pan_input.nominal_states(3, t)
-              : 0.0;
-    }
+    pan_input.attitude_horizon.col(t) = attitude_rpy;
+    pan_input.attitude_horizon(2, t) =
+        pan_input.nominal_states.rows() >= 4 ? pan_input.nominal_states(3, t)
+                                             : attitude_rpy(2);
   }
   return pan_input;
 }
 
-Control Planner::desiredControl(const Eigen::VectorXd& state) const {
+Control Planner::desiredControl(const DynamicsState& state) const {
   if (hasInitialPath()) {
     const Eigen::Vector4d current = samplePath(path_progress_s_);
     const Eigen::Vector4d next = samplePath(
@@ -405,7 +391,7 @@ Control Planner::desiredControl(const Eigen::VectorXd& state) const {
   }
 
   Control desired = config_.placeholder_command;
-  if (config_.has_goal && state.size() >= 3) {
+  if (config_.has_goal) {
     const Eigen::Vector3d pos = state.head<3>();
     const Eigen::Vector3d delta = config_.goal_position - pos;
     const double distance = delta.norm();
@@ -414,14 +400,12 @@ Control Planner::desiredControl(const Eigen::VectorXd& state) const {
       desired.head<3>() =
           delta / distance * std::max(0.0, config_.ref_speed);
     }
-    if (state.size() >= 4) {
-      desired(3) = config_.placeholder_command(3);
-    }
+    desired(3) = config_.placeholder_command(3);
   }
   return robot_.clampControl(desired);
 }
 
-bool Planner::hasArrived(const Eigen::VectorXd& state) {
+bool Planner::hasArrived(const DynamicsState& state) {
   if (arrive_latched_) return true;
   Eigen::Vector3d target = Eigen::Vector3d::Zero();
   if (hasInitialPath()) {
@@ -440,7 +424,7 @@ bool Planner::hasArrived(const Eigen::VectorXd& state) {
   return false;
 }
 
-double Planner::minBodyClearance(const Eigen::VectorXd& state,
+double Planner::minBodyClearance(const DynamicsState& state,
                                  const PointMatrix& points) const {
   if (points.cols() == 0) {
     return std::numeric_limits<double>::infinity();
@@ -483,7 +467,7 @@ bool Planner::hasInitialPath() const {
   return !path_waypoints_.empty();
 }
 
-void Planner::updatePathProgress(const Eigen::VectorXd& state) {
+void Planner::updatePathProgress(const DynamicsState& state) {
   if (!hasInitialPath()) return;
   const double projected = projectPathProgress(state.head<3>());
   path_progress_s_ =

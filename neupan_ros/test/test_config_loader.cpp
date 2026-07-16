@@ -73,9 +73,7 @@ TEST(ConfigLoader, LoadedConfigConstructsPlanner) {
   try {
     neupan_uav::Planner planner(loaded.planner);
     neupan_uav::PlannerInput input;
-    Eigen::VectorXd state(6);
-    state << 0.0, 0.0, 2.0, 0.0, 0.0, 0.0;
-    input.state = state;
+    input.state.position_world << 0.0, 0.0, 2.0;
     input.obstacle_points = neupan_uav::emptyPointMatrix();
     const neupan_uav::PlannerOutput output = planner.forward(input);
     EXPECT_TRUE(output.ready);

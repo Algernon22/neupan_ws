@@ -612,6 +612,21 @@ FrameFixture readFrame(JsonReader& reader) {
   return frame;
 }
 
+neupan_uav::UavState uavStateFromFixture(const Eigen::VectorXd& vector) {
+  if (vector.size() != 4 && vector.size() != 8) {
+    throw std::runtime_error("frame state must be [x,y,z,yaw] or dynamics state");
+  }
+  neupan_uav::UavState state;
+  state.position_world = vector.head<3>();
+  state.attitude_world_body =
+      Eigen::Quaterniond(Eigen::AngleAxisd(vector(3), Eigen::Vector3d::UnitZ()));
+  if (vector.size() == 8) {
+    state.velocity_world = vector.segment<3>(4);
+    state.yaw_rate = vector(7);
+  }
+  return state;
+}
+
 void readFrames(JsonReader& reader, Fixture& fixture) {
   reader.expect('[');
   if (!reader.consume(']')) {
@@ -873,7 +888,7 @@ int main(int argc, char** argv) {
     outputs.reserve(fixture.frames.size());
     for (const FrameFixture& frame : fixture.frames) {
       neupan_uav::PlannerInput input;
-      input.state = frame.state;
+      input.state = uavStateFromFixture(frame.state);
       input.obstacle_points = frame.obstacle_points;
       input.stamp_sec = frame.stamp_sec;
       outputs.push_back(planner.forward(input));

@@ -32,13 +32,13 @@ class Planner {
                          const ObstacleSelection& selected,
                          const Control& seed,
                          FarfieldGuideProfile* farfield_profile);
-  Control desiredControl(const Eigen::VectorXd& state) const;
-  bool hasArrived(const Eigen::VectorXd& state);
-  double minBodyClearance(const Eigen::VectorXd& state,
+  Control desiredControl(const DynamicsState& state) const;
+  bool hasArrived(const DynamicsState& state);
+  double minBodyClearance(const DynamicsState& state,
                           const PointMatrix& points) const;
   void initializePathCache();
   bool hasInitialPath() const;
-  void updatePathProgress(const Eigen::VectorXd& state);
+  void updatePathProgress(const DynamicsState& state);
   double projectPathProgress(const Eigen::Vector3d& position) const;
   Eigen::Vector4d samplePath(double progress_s) const;
   Eigen::Matrix<Scalar, 4, Eigen::Dynamic> referenceGeometry() const;
@@ -55,6 +55,7 @@ class Planner {
   std::vector<Eigen::Vector4d> path_waypoints_;
   std::vector<double> path_s_;
   double path_progress_s_ = 0.0;
+  double last_yaw_ = std::numeric_limits<double>::quiet_NaN();
   bool arrive_latched_ = false;
 };
 

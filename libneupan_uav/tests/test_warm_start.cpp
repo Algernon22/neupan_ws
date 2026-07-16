@@ -7,9 +7,17 @@
 
 namespace {
 
+neupan_uav::UavState stateAt(double x, double y, double z, double yaw) {
+  neupan_uav::UavState state;
+  state.position_world << x, y, z;
+  state.attitude_world_body =
+      Eigen::Quaterniond(Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()));
+  return state;
+}
+
 neupan_uav::PlannerInput basicInput() {
   neupan_uav::PlannerInput input;
-  input.state = Eigen::Vector4d(1.0, 2.0, 3.0, 0.4);
+  input.state = stateAt(1.0, 2.0, 3.0, 0.4);
   input.obstacle_points = neupan_uav::emptyPointMatrix();
   return input;
 }
@@ -99,7 +107,7 @@ TEST(PlannerWarmStart, ArriveReturnsZeroAndResetsNextSeed) {
   ASSERT_FALSE(planner.previousCommand().isZero());
 
   neupan_uav::PlannerInput arrived_input = basicInput();
-  arrived_input.state = Eigen::Vector4d(9.0, 2.0, 3.0, 0.4);
+  arrived_input.state = stateAt(9.0, 2.0, 3.0, 0.4);
   const neupan_uav::PlannerOutput out = planner.forward(arrived_input);
 
   EXPECT_TRUE(out.ready);
@@ -121,7 +129,7 @@ TEST(PlannerWarmStart, StopReturnsZeroAndResetsNextSeed) {
 
   neupan_uav::PlannerInput input = basicInput();
   input.obstacle_points.resize(3, 1);
-  input.obstacle_points.col(0) = input.state.head<3>();
+  input.obstacle_points.col(0) = input.state.position_world;
 
   const neupan_uav::PlannerOutput out = planner.forward(input);
 

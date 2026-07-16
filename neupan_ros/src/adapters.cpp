@@ -47,71 +47,35 @@ float readFloat32(const std::vector<std::uint8_t>& data, std::size_t offset) {
   return value;
 }
 
-Eigen::Matrix3d rpyToRotation(double roll, double pitch, double yaw) {
-  const double cr = std::cos(roll);
-  const double sr = std::sin(roll);
-  const double cp = std::cos(pitch);
-  const double sp = std::sin(pitch);
-  const double cy = std::cos(yaw);
-  const double sy = std::sin(yaw);
-
-  Eigen::Matrix3d rot;
-  rot << cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr,
-      sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr, -sp,
-      cp * sr, cp * cr;
-  return rot;
-}
-
 }  // namespace
 
-Rpy quaternionToRpy(const geometry_msgs::msg::Quaternion& q) {
-  const double x = q.x;
-  const double y = q.y;
-  const double z = q.z;
-  const double w = q.w;
-
-  const double sinr_cosp = 2.0 * (w * x + y * z);
-  const double cosr_cosp = 1.0 - 2.0 * (x * x + y * y);
-  const double roll = std::atan2(sinr_cosp, cosr_cosp);
-
-  const double sinp = 2.0 * (w * y - z * x);
-  double pitch = 0.0;
-  if (std::abs(sinp) >= 1.0) {
-    pitch = std::copysign(M_PI / 2.0, sinp);
-  } else {
-    pitch = std::asin(sinp);
-  }
-
-  const double siny_cosp = 2.0 * (w * z + x * y);
-  const double cosy_cosp = 1.0 - 2.0 * (y * y + z * z);
-  const double yaw = std::atan2(siny_cosp, cosy_cosp);
-
-  return Rpy{roll, pitch, yaw};
+Eigen::Quaterniond quaternionFromMsg(const geometry_msgs::msg::Quaternion& q) {
+  return neupan_uav::normalizedOrIdentity(Eigen::Quaterniond(q.w, q.x, q.y, q.z));
 }
 
 Eigen::Matrix3d quaternionToRotationMatrix(
     const geometry_msgs::msg::Quaternion& q) {
-  const double x = q.x;
-  const double y = q.y;
-  const double z = q.z;
-  const double w = q.w;
-  Eigen::Matrix3d rot;
-  rot << 1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y - w * z),
-      2.0 * (x * z + w * y), 2.0 * (x * y + w * z),
-      1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z - w * x),
-      2.0 * (x * z - w * y), 2.0 * (y * z + w * x),
-      1.0 - 2.0 * (x * x + y * y);
-  return rot;
+  return quaternionFromMsg(q).toRotationMatrix();
 }
 
-OdomStates odometryToStates(const nav_msgs::msg::Odometry& msg) {
+neupan_uav::UavState odometryToState(
+    const nav_msgs::msg::Odometry& msg,
+    TwistLinearFrame twist_linear_frame) {
   const auto& pos = msg.pose.pose.position;
   const auto& ori = msg.pose.pose.orientation;
-  const Rpy rpy = quaternionToRpy(ori);
+  const auto& twist = msg.twist.twist;
 
-  OdomStates out;
-  out.state6 << finiteOrZero(pos.x), finiteOrZero(pos.y), finiteOrZero(pos.z),
-      rpy.roll, rpy.pitch, rpy.yaw;
+  neupan_uav::UavState out;
+  out.position_world << finiteOrZero(pos.x), finiteOrZero(pos.y),
+      finiteOrZero(pos.z);
+  out.attitude_world_body = quaternionFromMsg(ori);
+  out.velocity_world << finiteOrZero(twist.linear.x),
+      finiteOrZero(twist.linear.y), finiteOrZero(twist.linear.z);
+  if (twist_linear_frame == TwistLinearFrame::kBody) {
+    out.velocity_world = out.attitude_world_body.toRotationMatrix() *
+                         out.velocity_world;
+  }
+  out.yaw_rate = finiteOrZero(twist.angular.z);
   return out;
 }
 
@@ -178,14 +142,14 @@ std::optional<neupan_uav::PointMatrix> readXyzPoints(
 
 neupan_uav::PointMatrix pointsBodyToWorld(
     const neupan_uav::PointMatrix& points_body,
-    const Eigen::Matrix<double, 6, 1>& state6) {
+    const neupan_uav::UavState& state) {
   if (points_body.rows() != 3 || points_body.cols() == 0) {
     return neupan_uav::emptyPointMatrix();
   }
-  const Eigen::Vector3d position = state6.head<3>();
   const Eigen::Matrix3d rot =
-      rpyToRotation(state6(3), state6(4), state6(5));
-  return (rot * points_body).colwise() + position;
+      neupan_uav::normalizedOrIdentity(state.attitude_world_body)
+          .toRotationMatrix();
+  return (rot * points_body).colwise() + state.position_world;
 }
 
 double minBodyClearance(const neupan_uav::PointMatrix& points_body,

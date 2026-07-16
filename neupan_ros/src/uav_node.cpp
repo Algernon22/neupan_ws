@@ -10,10 +10,26 @@
 #include <cstdio>
 #include <limits>
 #include <stdexcept>
+#include <string>
 
 #include "rclcpp/rclcpp.hpp"
 
 namespace neupan_ros {
+
+namespace {
+
+TwistLinearFrame parseTwistLinearFrame(const std::string& value) {
+  if (value == "body" || value == "child" || value == "child_frame") {
+    return TwistLinearFrame::kBody;
+  }
+  if (value == "world" || value == "map" || value == "odom") {
+    return TwistLinearFrame::kWorld;
+  }
+  throw std::runtime_error(
+      "odom_twist_linear_frame must be 'body' or 'world'");
+}
+
+}  // namespace
 
 UavNode::UavNode(const rclcpp::NodeOptions& options)
     : rclcpp::Node("neupan_uav_node", options) {
@@ -25,6 +41,7 @@ UavNode::UavNode(const rclcpp::NodeOptions& options)
   declare_parameter<std::string>("command_frame", internal::kDefaultCommandFrame);
   declare_parameter<std::string>("state_topic", "/Odometry");
   declare_parameter<std::string>("pointcloud_topic", "/cloud_registered_body");
+  declare_parameter<std::string>("odom_twist_linear_frame", "body");
   declare_parameter<double>("update_rate", 20.0);
   declare_parameter<double>("planner_rate", 10.0);
   declare_parameter<double>("max_state_age_ms", 150.0);
@@ -45,6 +62,8 @@ UavNode::UavNode(const rclcpp::NodeOptions& options)
   command_frame_ = get_parameter("command_frame").as_string();
   state_topic_ = get_parameter("state_topic").as_string();
   pointcloud_topic_ = get_parameter("pointcloud_topic").as_string();
+  odom_twist_linear_frame_ =
+      parseTwistLinearFrame(get_parameter("odom_twist_linear_frame").as_string());
   update_rate_ = std::max(1.0, get_parameter("update_rate").as_double());
   planner_rate_ = std::max(1.0, get_parameter("planner_rate").as_double());
   max_state_age_s_ =
@@ -216,13 +235,9 @@ std::optional<UavNode::LatestCloud> UavNode::processCloud(
 
 void UavNode::stateCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
   const std::uint64_t stamp_ns = stampToNanoseconds(msg->header.stamp);
-  const OdomStates states = odometryToStates(*msg);
-  Eigen::VectorXd planner_state(6);
-  planner_state = states.state6;
   LatestState latest;
   latest.stamp_ns = stamp_ns;
-  latest.state6 = states.state6;
-  latest.planner_state = planner_state;
+  latest.state = odometryToState(*msg, odom_twist_linear_frame_);
   latest.receive_time_s = nowSec();
   std::lock_guard<std::mutex> lock(data_mutex_);
   if (latest_state_.has_value() && stamp_ns <= latest_state_->stamp_ns) {
@@ -283,9 +298,9 @@ UavNode::PlannerResult UavNode::runPlannerOnce(const PlannerJob& job) {
   PlannerResult result;
 
   neupan_uav::PlannerInput input;
-  input.state = job.state.planner_state;
+  input.state = job.state.state;
   input.obstacle_points =
-      pointsBodyToWorld(job.cloud.points_body, job.state.state6);
+      pointsBodyToWorld(job.cloud.points_body, job.state.state);
   input.stamp_sec = stampNanosecondsToSeconds(job.state.stamp_ns);
   const neupan_uav::PlannerOutput out = planner_->forward(input);
 
