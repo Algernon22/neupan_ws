@@ -295,4 +295,15 @@ TEST(PlannerStage6, ForwardRunsMockDuneToNrmpObstacleCycle) {
   EXPECT_TRUE(out.command.allFinite());
 }
 
+TEST(PlannerStage6, RejectsInjectedRknnRunnerRuntimeMismatch) {
+  neupan_uav::PlannerConfig config = fullPlannerConfig(true);
+  neupan_uav::Planner planner(config);
+  neupan_uav::RknnMetadata metadata = mockMetadata();
+  metadata.receding = config.receding + 1;
+
+  auto runner = std::make_unique<neupan_uav::MockRknnRunner>(metadata);
+
+  EXPECT_THROW(planner.setRknnRunner(std::move(runner)), std::invalid_argument);
+}
+
 #endif

@@ -112,16 +112,33 @@ PAN::PAN(PanConfig config)
     runner_config.metadata_path = config_.rknn_metadata_path;
     runner_config.core_mask = config_.rknn_core_mask;
     runner_config.require_device = config_.rknn_require_device;
+    runner_config.expected_runtime = rknnRuntimeContract();
     rknn_runner_ = std::make_unique<ObsPointNetRknnRunner>(runner_config);
   }
 }
 
 void PAN::setRknnRunner(std::unique_ptr<RknnRunner> runner) {
+  if (runner != nullptr) {
+    validateRknnRunner(*runner);
+  }
   rknn_runner_ = std::move(runner);
 }
 
 bool PAN::hasFullConfig() const {
   return config_.has_nrmp_config && nrmp_.hasBackend();
+}
+
+RknnRuntimeContract PAN::rknnRuntimeContract() const {
+  RknnRuntimeContract contract;
+  contract.receding = config_.receding;
+  contract.dune_max_num = config_.dune_max_num;
+  contract.output_dim = config_.dune.edge_dim;
+  contract.body_half_extent = config_.point_flow.body_half_extent;
+  return contract;
+}
+
+void PAN::validateRknnRunner(const RknnRunner& runner) const {
+  runner.metadata().validateRuntime(rknnRuntimeContract());
 }
 
 PanOutput PAN::forward(const PanInput& input) {

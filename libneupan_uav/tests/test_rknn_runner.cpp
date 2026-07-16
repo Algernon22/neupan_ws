@@ -77,6 +77,15 @@ std::vector<neupan_uav::RknnFloatMatrix> samplePointFlow() {
   return point_flow;
 }
 
+neupan_uav::RknnRuntimeContract sampleContract() {
+  neupan_uav::RknnRuntimeContract contract;
+  contract.receding = 1;
+  contract.dune_max_num = 3;
+  contract.output_dim = 6;
+  contract.body_half_extent = Eigen::Vector3d(0.32, 0.32, 0.27);
+  return contract;
+}
+
 }  // namespace
 
 TEST(RknnMetadata, LoadsAndValidatesRuntime) {
@@ -92,7 +101,7 @@ TEST(RknnMetadata, LoadsAndValidatesRuntime) {
   EXPECT_EQ(metadata.input_shape[0], 1);
   EXPECT_EQ(metadata.input_shape[1], 6);
   EXPECT_EQ(metadata.input_shape[2], 3);
-  metadata.validateRuntime(1, 3, 6, Eigen::Vector3d(0.32, 0.32, 0.27));
+  metadata.validateRuntime(sampleContract());
 }
 
 TEST(RknnMetadata, RejectsQuantizedModels) {
@@ -126,18 +135,39 @@ TEST(RknnMetadata, RejectsRuntimeMismatch) {
   const neupan_uav::RknnMetadata metadata =
       neupan_uav::RknnMetadata::load(writeMetadata(tempDir(), "mismatch").string());
 
-  EXPECT_THROW(metadata.validateRuntime(2, 3, 6,
-                                        Eigen::Vector3d(0.32, 0.32, 0.27)),
-               std::invalid_argument);
-  EXPECT_THROW(metadata.validateRuntime(1, 4, 6,
-                                        Eigen::Vector3d(0.32, 0.32, 0.27)),
-               std::invalid_argument);
-  EXPECT_THROW(metadata.validateRuntime(1, 3, 5,
-                                        Eigen::Vector3d(0.32, 0.32, 0.27)),
-               std::invalid_argument);
-  EXPECT_THROW(metadata.validateRuntime(1, 3, 6,
-                                        Eigen::Vector3d(0.30, 0.32, 0.27)),
-               std::invalid_argument);
+  neupan_uav::RknnRuntimeContract contract = sampleContract();
+  contract.receding = 2;
+  EXPECT_THROW(metadata.validateRuntime(contract), std::invalid_argument);
+
+  contract = sampleContract();
+  contract.dune_max_num = 4;
+  EXPECT_THROW(metadata.validateRuntime(contract), std::invalid_argument);
+
+  contract = sampleContract();
+  contract.output_dim = 5;
+  EXPECT_THROW(metadata.validateRuntime(contract), std::invalid_argument);
+
+  contract = sampleContract();
+  contract.body_half_extent = Eigen::Vector3d(0.30, 0.32, 0.27);
+  EXPECT_THROW(metadata.validateRuntime(contract), std::invalid_argument);
+}
+
+TEST(RknnMetadata, RuntimeMismatchMessageIncludesValuesAndPath) {
+  const neupan_uav::RknnMetadata metadata =
+      neupan_uav::RknnMetadata::load(writeMetadata(tempDir(), "message").string());
+  neupan_uav::RknnRuntimeContract contract = sampleContract();
+  contract.body_half_extent = Eigen::Vector3d(0.30, 0.32, 0.27);
+
+  try {
+    metadata.validateRuntime(contract);
+    FAIL() << "validateRuntime should reject mismatched half_extent";
+  } catch (const std::invalid_argument& exc) {
+    const std::string message = exc.what();
+    EXPECT_NE(message.find("RKNN half_extent mismatch"), std::string::npos);
+    EXPECT_NE(message.find("model=[0.32, 0.32, 0.27]"), std::string::npos);
+    EXPECT_NE(message.find("runtime=[0.3, 0.32, 0.27]"), std::string::npos);
+    EXPECT_NE(message.find("metadata_path="), std::string::npos);
+  }
 }
 
 TEST(RknnPacking, PacksAndUnpacksLikePythonRunner) {
@@ -238,6 +268,14 @@ TEST(ObsPointNetRknnRunner, HardwareSmokeWhenAvailable) {
   config.metadata_path = metadata_path.string();
   config.core_mask = "CORE_0";
   config.require_device = true;
+  neupan_uav::RknnMetadata metadata =
+      neupan_uav::RknnMetadata::load(metadata_path.string());
+  neupan_uav::RknnRuntimeContract contract;
+  contract.receding = metadata.receding;
+  contract.dune_max_num = metadata.dune_max_num;
+  contract.output_dim = metadata.output_dim;
+  contract.body_half_extent = metadata.half_extent;
+  config.expected_runtime = contract;
   neupan_uav::ObsPointNetRknnRunner runner(config);
 
   std::vector<neupan_uav::RknnFloatMatrix> point_flow(

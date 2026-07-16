@@ -35,6 +35,16 @@ std::string readTextFile(const std::string& path) {
   return buffer.str();
 }
 
+std::string vectorToString(const Eigen::Vector3d& value) {
+  std::ostringstream stream;
+  stream << "[" << value(0) << ", " << value(1) << ", " << value(2) << "]";
+  return stream.str();
+}
+
+std::string metadataSuffix(const std::string& metadata_path) {
+  return ", metadata_path=" + metadata_path;
+}
+
 #ifdef NEUPAN_UAV_WITH_RKNN
 
 using Clock = std::chrono::steady_clock;
@@ -377,23 +387,30 @@ RknnMetadata RknnMetadata::load(const std::string& metadata_path) {
   return metadata;
 }
 
-void RknnMetadata::validateRuntime(
-    int expected_receding, int expected_dune_max_num, int expected_output_dim,
-    const Eigen::Vector3d& robot_half_extent) const {
-  if (receding != expected_receding) {
-    throw std::invalid_argument("RKNN metadata receding does not match runtime");
-  }
-  if (dune_max_num != expected_dune_max_num) {
+void RknnMetadata::validateRuntime(const RknnRuntimeContract& expected) const {
+  if (receding != expected.receding) {
     throw std::invalid_argument(
-        "RKNN metadata dune_max_num does not match runtime");
+        "RKNN receding mismatch: model=" + std::to_string(receding) +
+        ", runtime=" + std::to_string(expected.receding) +
+        metadataSuffix(metadata_path));
   }
-  if (output_dim != expected_output_dim) {
+  if (dune_max_num != expected.dune_max_num) {
     throw std::invalid_argument(
-        "RKNN metadata output_dim does not match runtime");
+        "RKNN dune_max_num mismatch: model=" + std::to_string(dune_max_num) +
+        ", runtime=" + std::to_string(expected.dune_max_num) +
+        metadataSuffix(metadata_path));
   }
-  if (!half_extent.isApprox(robot_half_extent, 1.0e-5)) {
+  if (output_dim != expected.output_dim) {
     throw std::invalid_argument(
-        "RKNN metadata half_extent does not match robot half extent");
+        "RKNN output_dim mismatch: model=" + std::to_string(output_dim) +
+        ", runtime=" + std::to_string(expected.output_dim) +
+        metadataSuffix(metadata_path));
+  }
+  if (!half_extent.isApprox(expected.body_half_extent, 1.0e-5)) {
+    throw std::invalid_argument(
+        "RKNN half_extent mismatch: model=" + vectorToString(half_extent) +
+        ", runtime=" + vectorToString(expected.body_half_extent) +
+        metadataSuffix(metadata_path));
   }
 }
 
@@ -515,8 +532,11 @@ void MockRknnRunner::setOutputFull(std::vector<float> output_full) {
 
 struct ObsPointNetRknnRunner::Impl {
   explicit Impl(const RknnRunnerConfig& config)
-      : metadata(RknnMetadata::load(config.metadata_path)),
-        model(readBinaryFile(metadata.rknn_path)) {
+      : metadata(RknnMetadata::load(config.metadata_path)) {
+    if (config.expected_runtime.has_value()) {
+      metadata.validateRuntime(*config.expected_runtime);
+    }
+    model = readBinaryFile(metadata.rknn_path);
     if (config.require_device && !rknnDeviceAvailable()) {
       throw std::runtime_error(
           "RKNN NPU device was not found. Expected /dev/rknpu* or "

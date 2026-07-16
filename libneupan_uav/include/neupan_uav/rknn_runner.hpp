@@ -7,12 +7,20 @@
 #include <array>
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 namespace neupan_uav {
 
 using RknnFloatMatrix = Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic>;
+
+struct RknnRuntimeContract {
+  int receding = 0;
+  int dune_max_num = 0;
+  int output_dim = 0;
+  Eigen::Vector3d body_half_extent = Eigen::Vector3d::Zero();
+};
 
 struct RknnMetadata {
   std::string metadata_path;
@@ -30,14 +38,14 @@ struct RknnMetadata {
 
   static RknnMetadata load(const std::string& metadata_path);
 
-  void validateRuntime(int receding, int dune_max_num, int output_dim,
-                       const Eigen::Vector3d& robot_half_extent) const;
+  void validateRuntime(const RknnRuntimeContract& expected) const;
 };
 
 struct RknnRunnerConfig {
   std::string metadata_path;
   std::string core_mask = "CORE_0_1_2";
   bool require_device = true;
+  std::optional<RknnRuntimeContract> expected_runtime;
 };
 
 struct RknnProfile {

@@ -57,6 +57,8 @@ class PAN {
   void resetIterationState();
   void resetObstacleState();
   bool hasFullConfig() const;
+  RknnRuntimeContract rknnRuntimeContract() const;
+  void validateRknnRunner(const RknnRunner& runner) const;
 
   PanConfig config_;
   NRMP nrmp_;
