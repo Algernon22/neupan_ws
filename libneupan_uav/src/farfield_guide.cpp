@@ -299,7 +299,7 @@ double FarfieldGuide::updateTargetOffset(const OccupancyStats& stats,
                                          double target_abs_offset) {
   if (stats.center_count >= config_.trigger_count) {
     int side = lockedSide();
-    if (side == 0) side = chooseClearSide(stats);
+    side = chooseClearSide(stats, side);
     side_ = side;
     release_streak_ = 0;
     releasing_ = false;
@@ -331,8 +331,24 @@ int FarfieldGuide::lockedSide() const {
   return 0;
 }
 
-int FarfieldGuide::chooseClearSide(const OccupancyStats& stats) {
-  return stats.left_count <= stats.right_count ? 1 : -1;
+int FarfieldGuide::chooseClearSide(const OccupancyStats& stats,
+                                   int current_side) {
+  constexpr int kSwitchMargin = 2;
+  const int difference = stats.left_count - stats.right_count;
+
+  if (difference > kSwitchMargin) {
+    return -1;
+  }
+
+  if (difference < -kSwitchMargin) {
+    return 1;
+  }
+
+  if (current_side != 0) {
+    return current_side;
+  }
+
+  return 1;
 }
 
 FarfieldGuide::OccupancyStats FarfieldGuide::occupancyStats(
@@ -366,7 +382,6 @@ FarfieldGuide::OccupancyStats FarfieldGuide::occupancyStats(
   std::unordered_set<VoxelKey, VoxelHash> center_voxels;
   std::unordered_set<VoxelKey, VoxelHash> left_voxels;
   std::unordered_set<VoxelKey, VoxelHash> right_voxels;
-  bool need_sides = false;
 
   for (Eigen::Index col = 0; col < points.cols(); ++col) {
     const Eigen::Vector3d delta = points.col(col) - origin;
@@ -381,22 +396,14 @@ FarfieldGuide::OccupancyStats FarfieldGuide::occupancyStats(
         vertical > config_.height_window) {
       continue;
     }
-    if (lateral >= -config_.center_width &&
-        lateral <= config_.center_width) {
-      center_voxels.insert(
-          voxelKey(forward_dist, lateral, vertical, config_.voxel_size));
-      if (static_cast<int>(center_voxels.size()) >= config_.trigger_count) {
-        need_sides = true;
-      }
-    }
-    if (need_sides) {
-      if (lateral > config_.center_width) {
-        left_voxels.insert(
-            voxelKey(forward_dist, lateral, vertical, config_.voxel_size));
-      } else if (lateral < -config_.center_width) {
-        right_voxels.insert(
-            voxelKey(forward_dist, lateral, vertical, config_.voxel_size));
-      }
+    const VoxelKey key =
+        voxelKey(forward_dist, lateral, vertical, config_.voxel_size);
+    if (std::abs(lateral) <= config_.center_width) {
+      center_voxels.insert(key);
+    } else if (lateral > config_.center_width) {
+      left_voxels.insert(key);
+    } else {
+      right_voxels.insert(key);
     }
   }
 

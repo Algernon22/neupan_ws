@@ -83,7 +83,7 @@ class FarfieldGuide {
   double updateTargetOffset(const OccupancyStats& stats,
                             double target_abs_offset);
   int lockedSide() const;
-  static int chooseClearSide(const OccupancyStats& stats);
+  static int chooseClearSide(const OccupancyStats& stats, int current_side);
   OccupancyStats occupancyStats(
       const PointMatrix& points,
       const Eigen::Matrix<Scalar, 4, Eigen::Dynamic>& reference_geometry,

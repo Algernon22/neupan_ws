@@ -79,20 +79,56 @@ TEST(FarfieldGuide, ChoosesClearerRightSideWhenLeftIsOccupied) {
   neupan_uav::FarfieldGuide guide(baseConfig());
   const auto ref = straightReference();
   const Eigen::Vector4d state(0.0, 0.0, 2.0, 0.0);
-  neupan_uav::PointMatrix points(3, 4);
-  points << 3.2, 3.6, 3.4, 3.8,
-            0.0, 0.1, 1.0, 1.4,
-            2.0, 2.0, 2.0, 2.0;
+  neupan_uav::PointMatrix points(3, 5);
+  points << 3.2, 3.6, 3.4, 3.8, 4.2,
+            0.0, 0.1, 1.0, 1.4, 1.8,
+            2.0, 2.0, 2.0, 2.0, 2.0;
 
   const auto result = guide.apply(ref, points, state, 2.0, 1.0, 3);
 
   EXPECT_TRUE(result.profile.active);
   EXPECT_EQ(result.profile.center_count, 2);
-  EXPECT_EQ(result.profile.left_count, 2);
+  EXPECT_EQ(result.profile.left_count, 3);
   EXPECT_EQ(result.profile.right_count, 0);
   EXPECT_NEAR(result.profile.target_offset_m, -2.0, 1e-12);
   EXPECT_NEAR(result.profile.offset_m, -0.5, 1e-12);
   EXPECT_NEAR(result.reference_geometry(1, 3), -0.5, 1e-12);
+}
+
+TEST(FarfieldGuide, SideCountsAreIndependentOfPointOrder) {
+  const auto ref = straightReference();
+  const Eigen::Vector4d state(0.0, 0.0, 2.0, 0.0);
+  neupan_uav::PointMatrix side_first(3, 5);
+  side_first << 3.4, 3.8, 4.2, 3.2, 3.6,
+                1.0, 1.4, 1.8, 0.0, 0.1,
+                2.0, 2.0, 2.0, 2.0, 2.0;
+  neupan_uav::PointMatrix center_first(3, 5);
+  center_first << 3.2, 3.6, 3.4, 3.8, 4.2,
+                  0.0, 0.1, 1.0, 1.4, 1.8,
+                  2.0, 2.0, 2.0, 2.0, 2.0;
+
+  neupan_uav::FarfieldGuide side_first_guide(baseConfig());
+  neupan_uav::FarfieldGuide center_first_guide(baseConfig());
+  const auto side_first_result =
+      side_first_guide.apply(ref, side_first, state, 2.0, 1.0, 3);
+  const auto center_first_result =
+      center_first_guide.apply(ref, center_first, state, 2.0, 1.0, 3);
+
+  EXPECT_EQ(side_first_result.profile.center_count,
+            center_first_result.profile.center_count);
+  EXPECT_EQ(side_first_result.profile.left_count,
+            center_first_result.profile.left_count);
+  EXPECT_EQ(side_first_result.profile.right_count,
+            center_first_result.profile.right_count);
+  EXPECT_NEAR(side_first_result.profile.target_offset_m,
+              center_first_result.profile.target_offset_m, 1e-12);
+  EXPECT_NEAR(side_first_result.profile.offset_m,
+              center_first_result.profile.offset_m, 1e-12);
+  EXPECT_NEAR(side_first_result.reference_geometry(1, 3),
+              center_first_result.reference_geometry(1, 3), 1e-12);
+  EXPECT_EQ(side_first_result.profile.left_count, 3);
+  EXPECT_EQ(side_first_result.profile.right_count, 0);
+  EXPECT_NEAR(side_first_result.profile.target_offset_m, -2.0, 1e-12);
 }
 
 TEST(FarfieldGuide, ReleaseRequiresConfirmCyclesThenDecays) {
