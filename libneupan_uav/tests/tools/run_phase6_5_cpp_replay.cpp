@@ -1,15 +1,15 @@
 #include "neupan_uav/planner.hpp"
 
 #include <Eigen/Dense>
-#include <unsupported/Eigen/MatrixFunctions>
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
-#include <limits>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -199,69 +199,33 @@ class JsonReader {
   std::size_t pos_ = 0;
 };
 
-struct RobotFixture {
-  double length = 0.46;
-  double width = 0.46;
-  double height = 0.12;
-  neupan_uav::Control max_speed =
-      neupan_uav::Control::Constant(std::numeric_limits<double>::infinity());
-  neupan_uav::Control max_acce =
-      neupan_uav::Control::Constant(std::numeric_limits<double>::infinity());
-  Eigen::Vector3d tau_velocity = Eigen::Vector3d(0.35, 0.35, 0.45);
-  Eigen::Vector3d gain_velocity = Eigen::Vector3d::Ones();
-  double tau_yaw_rate = 0.25;
-  double gain_yaw_rate = 1.0;
-  double velocity_weight_scale = 0.35;
-};
-
-struct AdjustFixture {
-  double q_s = 1.0;
-  double p_u = 1.0;
-  bool enable_control_smoothing = false;
-  double smooth_du = 0.0;
-  double smooth_u0 = 0.0;
-  double eps_abs = 1.0e-4;
-  double eps_rel = 1.0e-4;
-  int max_iter = 4000;
-  bool verbose = false;
-  bool polishing = false;
-  bool warm_starting = true;
-};
-
-struct PreselectFixture {
-  bool enable = true;
-  std::size_t max_points = 0;
-  int per_step = 0;
-  double nearest_ratio = 1.0;
-  double temporal_ratio = 0.0;
-  double diversity_ratio = 0.0;
-  Eigen::Vector3d corridor_margin = Eigen::Vector3d::Constant(10.0);
-  Eigen::Vector3d exact_margin = Eigen::Vector3d::Zero();
-};
-
-struct FarfieldFixture {
-  bool enable = false;
-  double range_backoff = 1.0;
-  double range_scale = 1.5;
-  double range_far_limit = std::numeric_limits<double>::infinity();
-  double lateral_width = 5.0;
-  double center_width = 2.0;
-  double height_window = 1.5;
-  Eigen::Vector3d voxel_size = Eigen::Vector3d(1.0, 1.0, 0.8);
-  int trigger_count = 8;
-  double offset_min = 1.5;
-  double offset_max = 4.0;
-  double offset_speed_gain = 0.6;
-  double offset_alpha = 0.20;
-  double release_alpha = 0.08;
-  int release_count = -1;
-  int release_confirm_cycles = 3;
-};
-
-struct PanFixture {
-  int iter_num = 1;
+struct ReplayPlannerInputs {
+  neupan_uav::PlannerOptions options;
+  neupan_uav::UavDynamicsConfig dynamics;
+  neupan_uav::DuneOptions dune_options;
+  double state_weight_gain = 1.0;
   int dune_max_num = 0;
-  int nrmp_max_num = 0;
+
+  ReplayPlannerInputs() {
+    options.grid.horizon_steps = 4;
+    options.grid.dt = 0.1;
+    options.ref_speed = 1.0;
+    options.collision_threshold = 0.05;
+    options.arrive_threshold = 0.15;
+    options.robot.body_half_extent = Eigen::Vector3d(0.23, 0.23, 0.06);
+    options.preselect.enabled = true;
+    options.preselect.max_points = 0;
+    options.preselect.per_step = 0;
+    options.preselect.nearest_ratio = 1.0;
+    options.preselect.temporal_ratio = 0.0;
+    options.preselect.diversity_ratio = 0.0;
+    options.preselect.corridor_margin = Eigen::Vector3d::Constant(10.0);
+    options.preselect.exact_margin = Eigen::Vector3d::Zero();
+    options.pan.iter_num = 1;
+    options.pan.trajectory_threshold = 1.0e-9;
+    options.pan.dune_threshold = 1.0e-9;
+    dynamics.yaw_rate_time_constant = 0.25;
+  }
 };
 
 struct FrameFixture {
@@ -270,17 +234,7 @@ struct FrameFixture {
 };
 
 struct Fixture {
-  int receding = 4;
-  double step_time = 0.1;
-  double ref_speed = 1.0;
-  double collision_threshold = 0.05;
-  double arrive_threshold = 0.15;
-  RobotFixture robot;
-  std::vector<Eigen::Vector4d> waypoints;
-  PreselectFixture preselect;
-  FarfieldFixture farfield;
-  PanFixture pan;
-  AdjustFixture adjust;
+  ReplayPlannerInputs planner;
   std::vector<FrameFixture> frames;
 };
 
@@ -349,7 +303,7 @@ neupan_uav::PointMatrix readPointRows(JsonReader& reader) {
   return points;
 }
 
-void readSolverArgs(JsonReader& reader, AdjustFixture& out) {
+void readSolverArgs(JsonReader& reader, neupan_uav::NrmpSolverOptions& out) {
   reader.expect('{');
   if (!reader.consume('}')) {
     do {
@@ -375,51 +329,59 @@ void readSolverArgs(JsonReader& reader, AdjustFixture& out) {
   }
 }
 
-void readRobot(JsonReader& reader, RobotFixture& out) {
+void readRobot(JsonReader& reader, ReplayPlannerInputs& planner) {
+  double length = 2.0 * planner.options.robot.body_half_extent(0);
+  double width = 2.0 * planner.options.robot.body_half_extent(1);
+  double height = 2.0 * planner.options.robot.body_half_extent(2);
   reader.expect('{');
   if (!reader.consume('}')) {
     do {
       const std::string key = reader.string();
       reader.expect(':');
       if (key == "length") {
-        out.length = reader.number();
+        length = reader.number();
       } else if (key == "width") {
-        out.width = reader.number();
+        width = reader.number();
       } else if (key == "height") {
-        out.height = reader.number();
+        height = reader.number();
       } else if (key == "max_speed") {
-        out.max_speed = readControlArray(reader);
+        planner.options.robot.max_control = readControlArray(reader);
       } else if (key == "max_acce") {
-        out.max_acce = readControlArray(reader);
+        planner.dynamics.max_acceleration = readControlArray(reader);
       } else if (key == "tau_velocity") {
-        out.tau_velocity = readVector3(reader);
+        planner.dynamics.velocity_time_constant = readVector3(reader);
       } else if (key == "gain_velocity") {
-        out.gain_velocity = readVector3(reader);
+        planner.dynamics.velocity_gain = readVector3(reader);
       } else if (key == "tau_yaw_rate") {
-        out.tau_yaw_rate = reader.number();
+        planner.dynamics.yaw_rate_time_constant = reader.number();
       } else if (key == "gain_yaw_rate") {
-        out.gain_yaw_rate = reader.number();
+        planner.dynamics.yaw_rate_gain = reader.number();
       } else if (key == "velocity_weight_scale") {
-        out.velocity_weight_scale = reader.number();
+        planner.dynamics.velocity_weight_scale = reader.number();
       } else {
         reader.skipValue();
       }
     } while (reader.consume(','));
     reader.expect('}');
   }
+  planner.options.robot.body_half_extent =
+      Eigen::Vector3d(std::max(0.0, length * 0.5),
+                      std::max(0.0, width * 0.5),
+                      std::max(0.0, height * 0.5));
 }
 
-void readIpath(JsonReader& reader, Fixture& fixture) {
+void readIpath(JsonReader& reader, ReplayPlannerInputs& planner) {
   reader.expect('{');
   if (!reader.consume('}')) {
     do {
       const std::string key = reader.string();
       reader.expect(':');
       if (key == "waypoints") {
+        planner.options.initial_path.waypoints.clear();
         reader.expect('[');
         if (!reader.consume(']')) {
           do {
-            fixture.waypoints.push_back(readVector4(reader));
+            planner.options.initial_path.waypoints.push_back(readVector4(reader));
           } while (reader.consume(','));
           reader.expect(']');
         }
@@ -429,24 +391,34 @@ void readIpath(JsonReader& reader, Fixture& fixture) {
     } while (reader.consume(','));
     reader.expect('}');
   }
+  if (!planner.options.initial_path.waypoints.empty()) {
+    planner.options.has_goal = true;
+    planner.options.goal_position =
+        planner.options.initial_path.waypoints.back().head<3>();
+  }
 }
 
-void readPreselect(JsonReader& reader, PreselectFixture& out) {
+void readPreselect(JsonReader& reader,
+                   neupan_uav::ObstaclePreselectorConfig& out) {
   reader.expect('{');
   if (!reader.consume('}')) {
     do {
       const std::string key = reader.string();
       reader.expect(':');
       if (key == "enable") {
-        out.enable = reader.boolean();
+        out.enabled = reader.boolean();
       } else if (key == "max_points" || key == "max_num") {
         out.max_points = static_cast<std::size_t>(reader.number());
       } else if (key == "per_step") {
         out.per_step = static_cast<int>(reader.number());
       } else if (key == "nearest_ratio" || key == "nearest_quota_ratio") {
         out.nearest_ratio = reader.number();
+      } else if (key == "temporal_enable") {
+        out.temporal_enabled = reader.boolean();
       } else if (key == "temporal_ratio" || key == "temporal_quota_ratio") {
         out.temporal_ratio = reader.number();
+      } else if (key == "diversity_enable") {
+        out.diversity_enabled = reader.boolean();
       } else if (key == "diversity_ratio" || key == "diversity_quota_ratio") {
         out.diversity_ratio = reader.number();
       } else if (key == "corridor_margin") {
@@ -461,14 +433,14 @@ void readPreselect(JsonReader& reader, PreselectFixture& out) {
   }
 }
 
-void readFarfield(JsonReader& reader, FarfieldFixture& out) {
+void readFarfield(JsonReader& reader, neupan_uav::FarfieldGuideConfig& out) {
   reader.expect('{');
   if (!reader.consume('}')) {
     do {
       const std::string key = reader.string();
       reader.expect(':');
       if (key == "enable") {
-        out.enable = reader.boolean();
+        out.enabled = reader.boolean();
       } else if (key == "range_backoff") {
         out.range_backoff = reader.number();
       } else if (key == "range_scale") {
@@ -507,18 +479,24 @@ void readFarfield(JsonReader& reader, FarfieldFixture& out) {
   }
 }
 
-void readPan(JsonReader& reader, PanFixture& out) {
+void readPan(JsonReader& reader, ReplayPlannerInputs& planner) {
   reader.expect('{');
   if (!reader.consume('}')) {
     do {
       const std::string key = reader.string();
       reader.expect(':');
       if (key == "iter_num") {
-        out.iter_num = static_cast<int>(reader.number());
+        planner.options.pan.iter_num = static_cast<int>(reader.number());
       } else if (key == "dune_max_num") {
-        out.dune_max_num = static_cast<int>(reader.number());
+        planner.dune_max_num = static_cast<int>(reader.number());
       } else if (key == "nrmp_max_num") {
-        out.nrmp_max_num = static_cast<int>(reader.number());
+        planner.options.nrmp.max_constraints = static_cast<int>(reader.number());
+      } else if (key == "dune_select_nearest_ratio") {
+        planner.dune_options.select_nearest_ratio = reader.number();
+      } else if (key == "dune_select_temporal_ratio") {
+        planner.dune_options.select_temporal_ratio = reader.number();
+      } else if (key == "dune_select_diversity_ratio") {
+        planner.dune_options.select_diversity_ratio = reader.number();
       } else {
         reader.skipValue();
       }
@@ -527,24 +505,34 @@ void readPan(JsonReader& reader, PanFixture& out) {
   }
 }
 
-void readAdjust(JsonReader& reader, AdjustFixture& out) {
+void readAdjust(JsonReader& reader, ReplayPlannerInputs& planner) {
   reader.expect('{');
   if (!reader.consume('}')) {
     do {
       const std::string key = reader.string();
       reader.expect(':');
       if (key == "q_s") {
-        out.q_s = reader.number();
+        planner.state_weight_gain = reader.number();
       } else if (key == "p_u") {
-        out.p_u = reader.number();
+        planner.options.pan.p_u = reader.number();
+      } else if (key == "eta") {
+        planner.options.pan.eta = reader.number();
+      } else if (key == "d_min") {
+        planner.options.pan.d_min = reader.number();
+      } else if (key == "d_max") {
+        planner.options.pan.d_max = reader.number();
+      } else if (key == "ro_obs") {
+        planner.options.pan.ro_obs = reader.number();
+      } else if (key == "bk") {
+        planner.options.pan.bk = reader.number();
       } else if (key == "enable_control_smoothing") {
-        out.enable_control_smoothing = reader.boolean();
+        planner.options.nrmp.enable_control_smoothing = reader.boolean();
       } else if (key == "smooth_du") {
-        out.smooth_du = reader.number();
+        planner.options.pan.smooth_du = reader.number();
       } else if (key == "smooth_u0") {
-        out.smooth_u0 = reader.number();
+        planner.options.pan.smooth_u0 = reader.number();
       } else if (key == "solver_args") {
-        readSolverArgs(reader, out);
+        readSolverArgs(reader, planner.options.nrmp.solver);
       } else {
         reader.skipValue();
       }
@@ -560,27 +548,28 @@ void readConfig(JsonReader& reader, Fixture& fixture) {
       const std::string key = reader.string();
       reader.expect(':');
       if (key == "receding") {
-        fixture.receding = static_cast<int>(reader.number());
+        fixture.planner.options.grid.horizon_steps =
+            static_cast<int>(reader.number());
       } else if (key == "step_time") {
-        fixture.step_time = reader.number();
+        fixture.planner.options.grid.dt = reader.number();
       } else if (key == "ref_speed") {
-        fixture.ref_speed = reader.number();
+        fixture.planner.options.ref_speed = reader.number();
       } else if (key == "collision_threshold") {
-        fixture.collision_threshold = reader.number();
+        fixture.planner.options.collision_threshold = reader.number();
       } else if (key == "arrive_threshold") {
-        fixture.arrive_threshold = reader.number();
+        fixture.planner.options.arrive_threshold = reader.number();
       } else if (key == "robot") {
-        readRobot(reader, fixture.robot);
+        readRobot(reader, fixture.planner);
       } else if (key == "ipath") {
-        readIpath(reader, fixture);
+        readIpath(reader, fixture.planner);
       } else if (key == "preselect") {
-        readPreselect(reader, fixture.preselect);
+        readPreselect(reader, fixture.planner.options.preselect);
       } else if (key == "farfield_guide") {
-        readFarfield(reader, fixture.farfield);
+        readFarfield(reader, fixture.planner.options.farfield_guide);
       } else if (key == "pan") {
-        readPan(reader, fixture.pan);
+        readPan(reader, fixture.planner);
       } else if (key == "adjust") {
-        readAdjust(reader, fixture.adjust);
+        readAdjust(reader, fixture.planner);
       } else {
         reader.skipValue();
       }
@@ -658,93 +647,47 @@ Fixture readFixture(const std::string& path) {
   return fixture;
 }
 
-neupan_uav::CompiledPlannerConfig makePlannerConfig(const Fixture& fixture) {
-  neupan_uav::PlannerOptions options;
-  neupan_uav::UavDynamicsConfig dynamics;
-  options.grid.horizon_steps = fixture.receding;
-  options.grid.dt = fixture.step_time;
-  options.ref_speed = fixture.ref_speed;
-  options.collision_threshold = fixture.collision_threshold;
-  options.arrive_threshold = fixture.arrive_threshold;
-  options.robot.body_half_extent =
-      Eigen::Vector3d(fixture.robot.length * 0.5,
-                      fixture.robot.width * 0.5,
-                      fixture.robot.height * 0.5);
-  options.robot.max_control = fixture.robot.max_speed;
-  options.initial_path.waypoints = fixture.waypoints;
-  if (!options.initial_path.waypoints.empty()) {
-    options.has_goal = true;
-    options.goal_position = options.initial_path.waypoints.back().head<3>();
-  }
-  options.preselect.enabled = fixture.preselect.enable;
-  options.preselect.max_points = fixture.preselect.max_points;
-  options.preselect.per_step = fixture.preselect.per_step;
-  options.preselect.nearest_ratio = fixture.preselect.nearest_ratio;
-  options.preselect.temporal_ratio = fixture.preselect.temporal_ratio;
-  options.preselect.diversity_ratio = fixture.preselect.diversity_ratio;
-  options.preselect.corridor_margin = fixture.preselect.corridor_margin;
-  options.preselect.exact_margin = fixture.preselect.exact_margin;
-  options.farfield_guide.enabled = fixture.farfield.enable;
-  options.farfield_guide.range_backoff = fixture.farfield.range_backoff;
-  options.farfield_guide.range_scale = fixture.farfield.range_scale;
-  options.farfield_guide.range_far_limit = fixture.farfield.range_far_limit;
-  options.farfield_guide.lateral_width = fixture.farfield.lateral_width;
-  options.farfield_guide.center_width = fixture.farfield.center_width;
-  options.farfield_guide.height_window = fixture.farfield.height_window;
-  options.farfield_guide.voxel_size = fixture.farfield.voxel_size;
-  options.farfield_guide.trigger_count = fixture.farfield.trigger_count;
-  options.farfield_guide.offset_min = fixture.farfield.offset_min;
-  options.farfield_guide.offset_max = fixture.farfield.offset_max;
-  options.farfield_guide.offset_speed_gain =
-      fixture.farfield.offset_speed_gain;
-  options.farfield_guide.offset_alpha = fixture.farfield.offset_alpha;
-  options.farfield_guide.release_alpha = fixture.farfield.release_alpha;
-  options.farfield_guide.release_count = fixture.farfield.release_count;
-  options.farfield_guide.release_confirm_cycles =
-      fixture.farfield.release_confirm_cycles;
-
-  options.pan.iter_num = fixture.pan.iter_num;
-  options.pan.trajectory_threshold = 1.0e-9;
-  options.pan.dune_threshold = 1.0e-9;
-  options.nrmp.max_constraints = fixture.pan.nrmp_max_num;
-  options.nrmp.enable_control_smoothing =
-      fixture.adjust.enable_control_smoothing;
-  options.nrmp.solver.eps_abs = fixture.adjust.eps_abs;
-  options.nrmp.solver.eps_rel = fixture.adjust.eps_rel;
-  options.nrmp.solver.max_iter = fixture.adjust.max_iter;
-  options.nrmp.solver.verbose = fixture.adjust.verbose;
-  options.nrmp.solver.polishing = fixture.adjust.polishing;
-  options.nrmp.solver.warm_starting = fixture.adjust.warm_starting;
-  options.pan.p_u = fixture.adjust.p_u;
-  options.pan.smooth_du = fixture.adjust.smooth_du;
-  options.pan.smooth_u0 = fixture.adjust.smooth_u0;
-
-  dynamics.max_acceleration = fixture.robot.max_acce;
-  dynamics.velocity_time_constant = fixture.robot.tau_velocity;
-  dynamics.velocity_gain = fixture.robot.gain_velocity;
-  dynamics.yaw_rate_time_constant = fixture.robot.tau_yaw_rate;
-  dynamics.yaw_rate_gain = fixture.robot.gain_yaw_rate;
-  dynamics.velocity_weight_scale = fixture.robot.velocity_weight_scale;
-
+std::optional<neupan_uav::RknnMetadata> makeReplayMetadata(
+    const ReplayPlannerInputs& planner) {
   std::optional<neupan_uav::RknnMetadata> metadata;
-  if (fixture.pan.dune_max_num > 0) {
-    options.dune = neupan_uav::DuneOptions();
+  if (planner.dune_max_num > 0) {
     metadata = neupan_uav::RknnMetadata();
-    metadata->receding = fixture.receding;
-    metadata->dune_max_num = fixture.pan.dune_max_num;
+    metadata->receding = planner.options.grid.horizon_steps;
+    metadata->dune_max_num = planner.dune_max_num;
     metadata->max_points = static_cast<int>(std::max(
-        fixture.preselect.max_points,
-        static_cast<std::size_t>(fixture.pan.dune_max_num)));
+        planner.options.preselect.max_points,
+        static_cast<std::size_t>(planner.dune_max_num)));
     metadata->output_dim = 6;
     metadata->input_shape = {{1, metadata->max_points, 3}};
     metadata->output_shape = {{1, metadata->max_points, 6}};
-    metadata->half_extent = options.robot.body_half_extent;
+    metadata->half_extent = planner.options.robot.body_half_extent;
     metadata->scene_scale = Eigen::Vector3d::Ones();
     metadata->clearance_scale = Eigen::Vector3d::Ones();
   }
+  return metadata;
+}
 
-  return neupan_uav::compilePlannerConfig(
-      options, dynamics, fixture.adjust.q_s, metadata);
+void validateReplayPlannerConfig(const neupan_uav::CompiledPlannerConfig& config) {
+  const neupan_uav::NrmpConfig& nrmp = config.pan().nrmp;
+  if (nrmp.state_dim != 8 || nrmp.control_dim != 4 ||
+      nrmp.geom_dim != 3 || nrmp.point_dim != 3) {
+    throw std::runtime_error(
+        "compiled replay NRMP dimensions must be state=8 control=4 geom=3 point=3");
+  }
+}
+
+neupan_uav::CompiledPlannerConfig makePlannerConfig(const Fixture& fixture) {
+  ReplayPlannerInputs planner = fixture.planner;
+  std::optional<neupan_uav::RknnMetadata> metadata =
+      makeReplayMetadata(planner);
+  if (metadata.has_value()) {
+    planner.options.dune = planner.dune_options;
+  }
+
+  neupan_uav::CompiledPlannerConfig config = neupan_uav::compilePlannerConfig(
+      planner.options, planner.dynamics, planner.state_weight_gain, metadata);
+  validateReplayPlannerConfig(config);
+  return config;
 }
 
 void writeVector(std::ostream& out, const Eigen::VectorXd& vector) {
@@ -780,7 +723,7 @@ void writeMatrix(std::ostream& out, const Eigen::MatrixXd& matrix) {
   out << "]";
 }
 
-void writeReport(const std::string& path, const Fixture& fixture,
+void writeReport(const std::string& path,
                  const std::vector<neupan_uav::PlannerResult>& outputs) {
   std::filesystem::create_directories(std::filesystem::path(path).parent_path());
   std::ofstream out(path);
@@ -897,7 +840,7 @@ int main(int argc, char** argv) {
       input.obstacle_points = frame.obstacle_points;
       outputs.push_back(planner.forward(input));
     }
-    writeReport(args.output_path, fixture, outputs);
+    writeReport(args.output_path, outputs);
     return 0;
   } catch (const std::exception& exc) {
     std::cerr << "run_phase6_5_cpp_replay: " << exc.what() << "\n";
