@@ -5,6 +5,7 @@
 
 #include <numeric>
 #include <utility>
+#include <variant>
 
 namespace {
 
@@ -79,6 +80,11 @@ neupan_uav::CompiledPlannerConfig fullPlannerConfig(bool with_obstacles) {
   return buildConfig(std::move(options));
 }
 
+const neupan_uav::Tracking& tracking(
+    const neupan_uav::PlannerResult& result) {
+  return std::get<neupan_uav::Tracking>(result.decision());
+}
+
 }  // namespace
 
 TEST(PlannerReplaySkeleton, EmptyAndStaticObstacleScenariosAreDeterministic) {
@@ -93,17 +99,16 @@ TEST(PlannerReplaySkeleton, EmptyAndStaticObstacleScenariosAreDeterministic) {
   empty_input.state = stateAt(0.0, 0.0, 1.0, 0.0);
   empty_input.obstacle_points = neupan_uav::emptyPointMatrix();
 
-  const neupan_uav::PlannerOutput first = planner.forward(empty_input);
-  const neupan_uav::PlannerOutput second = planner.forward(empty_input);
+  const neupan_uav::PlannerResult first = planner.forward(empty_input);
+  const neupan_uav::PlannerResult second = planner.forward(empty_input);
 
-  EXPECT_TRUE(first.ready);
-  EXPECT_TRUE(second.ready);
-  EXPECT_EQ(first.reason, "planner_ok");
-  EXPECT_EQ(second.reason, "planner_ok");
-  EXPECT_TRUE(first.command.allFinite());
-  EXPECT_TRUE(second.command.allFinite());
-  EXPECT_TRUE(second.seed_control.isApprox(first.command));
-  EXPECT_TRUE(std::isinf(first.min_distance));
+  EXPECT_TRUE(first.isTracking());
+  EXPECT_TRUE(second.isTracking());
+  EXPECT_TRUE(tracking(first).command.allFinite());
+  EXPECT_TRUE(tracking(second).command.allFinite());
+  EXPECT_TRUE(second.diagnostics().warm_start_seed.isApprox(
+      tracking(first).command));
+  EXPECT_TRUE(std::isinf(first.diagnostics().min_clearance.value()));
 
   neupan_uav::PlannerInput static_input = empty_input;
   static_input.obstacle_points.resize(3, 2);
@@ -111,13 +116,12 @@ TEST(PlannerReplaySkeleton, EmptyAndStaticObstacleScenariosAreDeterministic) {
                                   0.0,  0.0,
                                   1.0,  1.0;
 
-  const neupan_uav::PlannerOutput obstacle_out = planner.forward(static_input);
+  const neupan_uav::PlannerResult obstacle_out = planner.forward(static_input);
 
-  EXPECT_TRUE(obstacle_out.ready);
-  EXPECT_EQ(obstacle_out.reason, "planner_ok");
-  EXPECT_EQ(obstacle_out.profile.input_obstacle_count, 2u);
-  EXPECT_EQ(obstacle_out.profile.preselected_obstacle_count, 2u);
-  EXPECT_NEAR(obstacle_out.min_distance, 3.0, 1e-12);
+  EXPECT_TRUE(obstacle_out.isTracking());
+  EXPECT_EQ(obstacle_out.diagnostics().profile.input_obstacle_count, 2u);
+  EXPECT_EQ(obstacle_out.diagnostics().profile.preselected_obstacle_count, 2u);
+  EXPECT_NEAR(obstacle_out.diagnostics().min_clearance.value(), 3.0, 1e-12);
 }
 
 TEST(PlannerStage6, InitialPathBuildsReferenceTrajectoryAndDesiredCommand) {
@@ -141,19 +145,21 @@ TEST(PlannerStage6, InitialPathBuildsReferenceTrajectoryAndDesiredCommand) {
   input.state = stateAt(0.0, 0.0, 1.0, 0.0);
   input.obstacle_points = neupan_uav::emptyPointMatrix();
 
-  const neupan_uav::PlannerOutput out = planner.forward(input);
+  const neupan_uav::PlannerResult out = planner.forward(input);
+  ASSERT_TRUE(out.isTracking());
+  const auto& tracked = tracking(out);
 
-  ASSERT_EQ(out.reference.rows(), 8);
-  ASSERT_EQ(out.reference.cols(), config.receding() + 1);
-  EXPECT_TRUE(out.command.allFinite());
-  EXPECT_GT(out.command(0), 0.0);
-  EXPECT_TRUE(out.reference.col(0).head<4>().isApprox(
+  ASSERT_EQ(tracked.plan.reference.rows(), 8);
+  ASSERT_EQ(tracked.plan.reference.cols(), config.receding() + 1);
+  EXPECT_TRUE(tracked.command.allFinite());
+  EXPECT_GT(tracked.command(0), 0.0);
+  EXPECT_TRUE(tracked.plan.reference.col(0).head<4>().isApprox(
       Eigen::Vector4d(0.0, 0.0, 1.0, 0.0)));
-  EXPECT_TRUE(out.reference.col(1).head<4>().isApprox(
+  EXPECT_TRUE(tracked.plan.reference.col(1).head<4>().isApprox(
       Eigen::Vector4d(0.5, 0.0, 1.0, 0.0)));
-  EXPECT_TRUE(out.reference.col(2).head<4>().isApprox(
+  EXPECT_TRUE(tracked.plan.reference.col(2).head<4>().isApprox(
       Eigen::Vector4d(1.0, 0.0, 1.0, 0.0)));
-  EXPECT_TRUE(out.reference.col(3).head<4>().isApprox(
+  EXPECT_TRUE(tracked.plan.reference.col(3).head<4>().isApprox(
       Eigen::Vector4d(1.0, 0.5, 1.0, 0.7853981633974483)));
 }
 
@@ -194,15 +200,16 @@ TEST(PlannerStage75, FarfieldGuideAppliesOncePerForwardCycle) {
                            0.0, 0.1,
                            2.0, 2.0;
 
-  const neupan_uav::PlannerOutput out = planner.forward(input);
+  const neupan_uav::PlannerResult out = planner.forward(input);
 
-  EXPECT_TRUE(out.ready);
-  EXPECT_TRUE(out.profile.farfield_active);
-  EXPECT_EQ(out.profile.farfield_center_count, 2);
-  EXPECT_NEAR(out.profile.farfield_target_offset_m, 2.0, 1e-12);
-  EXPECT_NEAR(out.profile.farfield_offset_m, 0.5, 1e-12);
-  ASSERT_EQ(out.reference.cols(), config.receding() + 1);
-  EXPECT_NEAR(out.reference(1, config.receding()), 0.5, 1e-12);
+  EXPECT_TRUE(out.isTracking());
+  EXPECT_TRUE(out.diagnostics().profile.farfield_active);
+  EXPECT_EQ(out.diagnostics().profile.farfield_center_count, 2);
+  EXPECT_NEAR(out.diagnostics().profile.farfield_target_offset_m, 2.0, 1e-12);
+  EXPECT_NEAR(out.diagnostics().profile.farfield_offset_m, 0.5, 1e-12);
+  ASSERT_EQ(tracking(out).plan.reference.cols(), config.receding() + 1);
+  EXPECT_NEAR(tracking(out).plan.reference(1, config.receding()), 0.5,
+              1e-12);
 }
 
 TEST(PlannerStage6, InitialPathArrivalLatchesUntilReset) {
@@ -220,18 +227,18 @@ TEST(PlannerStage6, InitialPathArrivalLatchesUntilReset) {
   input.state = stateAt(0.95, 0.0, 0.0, 0.0);
   input.obstacle_points = neupan_uav::emptyPointMatrix();
 
-  const neupan_uav::PlannerOutput arrived = planner.forward(input);
-  EXPECT_TRUE(arrived.arrive);
-  EXPECT_EQ(arrived.reason, "arrived");
+  const neupan_uav::PlannerResult arrived = planner.forward(input);
+  EXPECT_TRUE(std::holds_alternative<neupan_uav::GoalReached>(
+      arrived.decision()));
 
   input.state = stateAt(0.5, 0.0, 0.0, 0.0);
-  const neupan_uav::PlannerOutput still_arrived = planner.forward(input);
-  EXPECT_TRUE(still_arrived.arrive);
+  const neupan_uav::PlannerResult still_arrived = planner.forward(input);
+  EXPECT_TRUE(std::holds_alternative<neupan_uav::GoalReached>(
+      still_arrived.decision()));
 
   planner.reset();
-  const neupan_uav::PlannerOutput after_reset = planner.forward(input);
-  EXPECT_FALSE(after_reset.arrive);
-  EXPECT_EQ(after_reset.reason, "planner_ok");
+  const neupan_uav::PlannerResult after_reset = planner.forward(input);
+  EXPECT_TRUE(after_reset.isTracking());
 }
 
 #ifdef NEUPAN_UAV_WITH_OSQP
@@ -244,19 +251,18 @@ TEST(PlannerStage6, ForwardRunsFullNrmpCycleWithoutObstacles) {
   input.state = stateAt(0.0, 0.0, 1.0, 0.0);
   input.obstacle_points = neupan_uav::emptyPointMatrix();
 
-  const neupan_uav::PlannerOutput out = planner.forward(input);
+  const neupan_uav::PlannerResult out = planner.forward(input);
 
-  EXPECT_TRUE(out.ready);
-  EXPECT_EQ(out.reason, "planner_ok");
-  EXPECT_TRUE(out.seed_control.isZero());
-  EXPECT_EQ(out.trajectory.rows(), config.pan().nrmp.state_dim);
-  EXPECT_EQ(out.trajectory.cols(), config.receding() + 1);
-  EXPECT_EQ(out.reference.cols(), config.receding() + 1);
-  EXPECT_EQ(out.control_trajectory.cols(), config.receding());
-  EXPECT_GT(out.profile.osqp_iteration_count, 0);
-  EXPECT_EQ(out.profile.pan_iteration_limit, config.pan().iter_num);
-  EXPECT_TRUE(out.command.allFinite());
-  EXPECT_TRUE(planner.previousCommand().isApprox(out.command));
+  EXPECT_TRUE(out.isTracking());
+  EXPECT_TRUE(out.diagnostics().warm_start_seed.isZero());
+  EXPECT_EQ(tracking(out).plan.trajectory.rows(), config.pan().nrmp.state_dim);
+  EXPECT_EQ(tracking(out).plan.trajectory.cols(), config.receding() + 1);
+  EXPECT_EQ(tracking(out).plan.reference.cols(), config.receding() + 1);
+  EXPECT_EQ(tracking(out).plan.control_trajectory.cols(), config.receding());
+  EXPECT_GT(out.diagnostics().profile.osqp_iteration_count, 0);
+  EXPECT_EQ(out.diagnostics().profile.pan_iteration_limit, config.pan().iter_num);
+  EXPECT_TRUE(tracking(out).command.allFinite());
+  EXPECT_TRUE(planner.previousCommand().isApprox(tracking(out).command));
 }
 
 TEST(PlannerStage6, PreviousCommandSeedsNextNrmpCycle) {
@@ -272,15 +278,19 @@ TEST(PlannerStage6, PreviousCommandSeedsNextNrmpCycle) {
   input.obstacle_points = neupan_uav::emptyPointMatrix();
 
   neupan_uav::Planner enabled_planner(enabled_config);
-  const neupan_uav::PlannerOutput enabled_seed =
+  const neupan_uav::PlannerResult enabled_seed =
       enabled_planner.forward(input);
-  const neupan_uav::PlannerOutput enabled = enabled_planner.forward(input);
+  const neupan_uav::PlannerResult enabled = enabled_planner.forward(input);
 
-  ASSERT_TRUE(enabled_seed.ready);
-  ASSERT_TRUE(enabled.ready);
-  EXPECT_TRUE(enabled.seed_control.isApprox(enabled_seed.command));
-  EXPECT_LT((enabled.command - enabled.seed_control).norm(), 0.25);
-  EXPECT_TRUE(enabled_planner.previousCommand().isApprox(enabled.command));
+  ASSERT_TRUE(enabled_seed.isTracking());
+  ASSERT_TRUE(enabled.isTracking());
+  EXPECT_TRUE(enabled.diagnostics().warm_start_seed.isApprox(
+      tracking(enabled_seed).command));
+  EXPECT_LT((tracking(enabled).command -
+             enabled.diagnostics().warm_start_seed).norm(),
+            0.25);
+  EXPECT_TRUE(enabled_planner.previousCommand().isApprox(
+      tracking(enabled).command));
 }
 
 TEST(PlannerStage6, ForwardRunsMockDuneToNrmpObstacleCycle) {
@@ -304,18 +314,17 @@ TEST(PlannerStage6, ForwardRunsMockDuneToNrmpObstacleCycle) {
   input.obstacle_points.resize(3, 1);
   input.obstacle_points << 2.0, 0.0, 1.0;
 
-  const neupan_uav::PlannerOutput out = planner.forward(input);
+  const neupan_uav::PlannerResult out = planner.forward(input);
 
-  EXPECT_TRUE(out.ready);
-  EXPECT_EQ(out.reason, "planner_ok");
-  EXPECT_EQ(out.profile.input_obstacle_count, 1u);
-  EXPECT_EQ(out.profile.preselected_obstacle_count, 1u);
-  EXPECT_EQ(out.profile.dune_selected_count, 1u);
-  EXPECT_GT(out.profile.dune_sec, 0.0);
-  EXPECT_GT(out.profile.osqp_iteration_count, 0);
-  EXPECT_EQ(out.nominal_distance.size(), config.receding());
-  EXPECT_TRUE(std::isfinite(out.min_distance));
-  EXPECT_TRUE(out.command.allFinite());
+  EXPECT_TRUE(out.isTracking());
+  EXPECT_EQ(out.diagnostics().profile.input_obstacle_count, 1u);
+  EXPECT_EQ(out.diagnostics().profile.preselected_obstacle_count, 1u);
+  EXPECT_EQ(out.diagnostics().profile.dune_selected_count, 1u);
+  EXPECT_GT(out.diagnostics().profile.dune_sec, 0.0);
+  EXPECT_GT(out.diagnostics().profile.osqp_iteration_count, 0);
+  EXPECT_EQ(tracking(out).plan.nominal_distance.size(), config.receding());
+  EXPECT_TRUE(std::isfinite(out.diagnostics().min_clearance.value()));
+  EXPECT_TRUE(tracking(out).command.allFinite());
 }
 
 TEST(PlannerStage6, RejectsInjectedRknnRunnerRuntimeMismatch) {
@@ -350,10 +359,10 @@ TEST(PlannerStage6, StableDuneDoesNotStopWhenTrajectoryChanges) {
   input.obstacle_points.resize(3, 1);
   input.obstacle_points << 2.0, 0.0, 1.0;
 
-  const neupan_uav::PlannerOutput out = planner.forward(input);
+  const neupan_uav::PlannerResult out = planner.forward(input);
 
-  ASSERT_TRUE(out.ready);
-  EXPECT_EQ(out.profile.pan_iterations, config.pan().iter_num);
+  ASSERT_TRUE(out.isTracking());
+  EXPECT_EQ(out.diagnostics().profile.pan_iterations, config.pan().iter_num);
 }
 
 #endif

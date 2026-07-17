@@ -6,7 +6,6 @@
 #include <cmath>
 #include <cstddef>
 #include <limits>
-#include <string>
 
 namespace neupan_uav {
 
@@ -152,24 +151,6 @@ struct PlannerInput {
   PointMatrix obstacle_velocities = emptyPointMatrix();
   bool valid = true;
   bool stale = false;
-};
-
-struct PlannerOutput {
-  Control command = Control::Zero();
-  Trajectory trajectory;
-  Trajectory reference;
-  Eigen::MatrixXd control_trajectory;
-  Eigen::RowVectorXd nominal_distance;
-  bool ready = true;
-  std::string reason = "planner_ok";
-  bool arrive = false;
-  bool stop = false;
-  double min_distance = std::numeric_limits<double>::infinity();
-  PlannerProfile profile;
-
-  // The previous successful planner command used as this planning cycle's
-  // warm-start seed.
-  Control seed_control = Control::Zero();
 };
 
 }  // namespace neupan_uav

@@ -35,7 +35,6 @@ class UavNode final : public rclcpp::Node {
   struct LatestCloud {
     std::uint64_t stamp_ns = 0;
     neupan_uav::PointMatrix points_body = neupan_uav::emptyPointMatrix();
-    double min_body_clearance = std::numeric_limits<double>::infinity();
     double receive_time_s = 0.0;
   };
 
@@ -45,9 +44,9 @@ class UavNode final : public rclcpp::Node {
   };
 
   struct PlannerResult {
-    std::optional<neupan_uav::Control> command;
-    bool ready = false;
-    std::string reason = "waiting_for_state";
+    neupan_uav::Control command = neupan_uav::Control::Zero();
+    bool publish_command = false;
+    bool arrived = false;
     std::uint64_t generated_stamp_ns = 0;
   };
 

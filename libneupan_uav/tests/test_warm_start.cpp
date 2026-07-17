@@ -4,6 +4,7 @@
 
 #include <limits>
 #include <utility>
+#include <variant>
 
 namespace {
 
@@ -36,6 +37,11 @@ neupan_uav::CompiledPlannerConfig configWithCommand(
   return buildConfig(std::move(options));
 }
 
+const neupan_uav::Tracking& tracking(
+    const neupan_uav::PlannerResult& result) {
+  return std::get<neupan_uav::Tracking>(result.decision());
+}
+
 }  // namespace
 
 TEST(PlannerWarmStart, InitialPreviousCommandIsZero) {
@@ -43,10 +49,9 @@ TEST(PlannerWarmStart, InitialPreviousCommandIsZero) {
 
   EXPECT_TRUE(planner.previousCommand().isZero());
 
-  const neupan_uav::PlannerOutput out = planner.forward(basicInput());
-  EXPECT_TRUE(out.ready);
-  EXPECT_EQ(out.reason, "planner_ok");
-  EXPECT_TRUE(out.seed_control.isZero());
+  const neupan_uav::PlannerResult out = planner.forward(basicInput());
+  EXPECT_TRUE(out.isTracking());
+  EXPECT_TRUE(out.diagnostics().warm_start_seed.isZero());
   EXPECT_TRUE(planner.previousCommand().allFinite());
 }
 
@@ -60,16 +65,17 @@ TEST(PlannerWarmStart, SuccessfulForwardSeedsNextCycleWithPublishedCommand) {
   };
   neupan_uav::Planner planner(buildConfig(std::move(options)));
 
-  const neupan_uav::PlannerOutput first = planner.forward(basicInput());
-  ASSERT_TRUE(first.ready);
-  EXPECT_TRUE(first.seed_control.isZero());
-  EXPECT_FALSE(first.command.isZero());
-  EXPECT_TRUE(planner.previousCommand().isApprox(first.command));
+  const neupan_uav::PlannerResult first = planner.forward(basicInput());
+  ASSERT_TRUE(first.isTracking());
+  EXPECT_TRUE(first.diagnostics().warm_start_seed.isZero());
+  EXPECT_FALSE(tracking(first).command.isZero());
+  EXPECT_TRUE(planner.previousCommand().isApprox(tracking(first).command));
 
-  const neupan_uav::PlannerOutput second = planner.forward(basicInput());
-  ASSERT_TRUE(second.ready);
-  EXPECT_TRUE(second.seed_control.isApprox(first.command));
-  EXPECT_TRUE(planner.previousCommand().isApprox(second.command));
+  const neupan_uav::PlannerResult second = planner.forward(basicInput());
+  ASSERT_TRUE(second.isTracking());
+  EXPECT_TRUE(second.diagnostics().warm_start_seed.isApprox(
+      tracking(first).command));
+  EXPECT_TRUE(planner.previousCommand().isApprox(tracking(second).command));
 }
 
 TEST(PlannerWarmStart, StoresClampedCommandForNextSeed) {
@@ -78,23 +84,24 @@ TEST(PlannerWarmStart, StoresClampedCommandForNextSeed) {
   options.robot.max_control << 0.4, 0.3, 1.0, 0.2;
   neupan_uav::Planner planner(buildConfig(std::move(options)));
 
-  const neupan_uav::PlannerOutput first = planner.forward(basicInput());
-  ASSERT_TRUE(first.ready);
-  EXPECT_LE(first.command.cwiseAbs()(0), 0.4 + 1.0e-12);
-  EXPECT_LE(first.command.cwiseAbs()(1), 0.3 + 1.0e-12);
-  EXPECT_LE(first.command.cwiseAbs()(2), 1.0 + 1.0e-12);
-  EXPECT_LE(first.command.cwiseAbs()(3), 0.2 + 1.0e-12);
-  EXPECT_TRUE(planner.previousCommand().isApprox(first.command));
+  const neupan_uav::PlannerResult first = planner.forward(basicInput());
+  ASSERT_TRUE(first.isTracking());
+  EXPECT_LE(tracking(first).command.cwiseAbs()(0), 0.4 + 1.0e-12);
+  EXPECT_LE(tracking(first).command.cwiseAbs()(1), 0.3 + 1.0e-12);
+  EXPECT_LE(tracking(first).command.cwiseAbs()(2), 1.0 + 1.0e-12);
+  EXPECT_LE(tracking(first).command.cwiseAbs()(3), 0.2 + 1.0e-12);
+  EXPECT_TRUE(planner.previousCommand().isApprox(tracking(first).command));
 
-  const neupan_uav::PlannerOutput second = planner.forward(basicInput());
-  ASSERT_TRUE(second.ready);
-  EXPECT_TRUE(second.seed_control.isApprox(first.command));
+  const neupan_uav::PlannerResult second = planner.forward(basicInput());
+  ASSERT_TRUE(second.isTracking());
+  EXPECT_TRUE(second.diagnostics().warm_start_seed.isApprox(
+      tracking(first).command));
 }
 
 TEST(PlannerWarmStart, ResetClearsPreviousCommand) {
   neupan_uav::Planner planner(configWithCommand(
       (neupan_uav::Control() << 1.0, 2.0, 3.0, 4.0).finished()));
-  ASSERT_TRUE(planner.forward(basicInput()).ready);
+  ASSERT_TRUE(planner.forward(basicInput()).isTracking());
   ASSERT_FALSE(planner.previousCommand().isZero());
 
   planner.reset();
@@ -109,18 +116,16 @@ TEST(PlannerWarmStart, ArriveReturnsZeroAndResetsNextSeed) {
   options.goal_position = Eigen::Vector3d(9.0, 2.0, 3.0);
   options.arrive_threshold = 0.5;
   neupan_uav::Planner planner(buildConfig(std::move(options)));
-  ASSERT_TRUE(planner.forward(basicInput()).ready);
+  ASSERT_TRUE(planner.forward(basicInput()).isTracking());
   ASSERT_FALSE(planner.previousCommand().isZero());
 
   neupan_uav::PlannerInput arrived_input = basicInput();
   arrived_input.state = stateAt(9.0, 2.0, 3.0, 0.4);
-  const neupan_uav::PlannerOutput out = planner.forward(arrived_input);
+  const neupan_uav::PlannerResult out = planner.forward(arrived_input);
 
-  EXPECT_TRUE(out.ready);
-  EXPECT_TRUE(out.arrive);
-  EXPECT_EQ(out.reason, "arrived");
-  EXPECT_TRUE(out.command.isZero());
-  EXPECT_FALSE(out.seed_control.isZero());
+  EXPECT_TRUE(std::holds_alternative<neupan_uav::GoalReached>(out.decision()));
+  EXPECT_TRUE(out.commandToPublish().isZero());
+  EXPECT_FALSE(out.diagnostics().warm_start_seed.isZero());
   EXPECT_TRUE(planner.previousCommand().isZero());
 }
 
@@ -130,43 +135,49 @@ TEST(PlannerWarmStart, StopReturnsZeroAndResetsNextSeed) {
   options.collision_threshold = 0.2;
   options.robot.body_half_extent = Eigen::Vector3d::Zero();
   neupan_uav::Planner planner(buildConfig(std::move(options)));
-  ASSERT_TRUE(planner.forward(basicInput()).ready);
+  ASSERT_TRUE(planner.forward(basicInput()).isTracking());
   ASSERT_FALSE(planner.previousCommand().isZero());
 
   neupan_uav::PlannerInput input = basicInput();
   input.obstacle_points.resize(3, 1);
   input.obstacle_points.col(0) = input.state.position_world;
 
-  const neupan_uav::PlannerOutput out = planner.forward(input);
+  const neupan_uav::PlannerResult out = planner.forward(input);
 
-  EXPECT_TRUE(out.ready);
-  EXPECT_TRUE(out.stop);
-  EXPECT_EQ(out.reason, "planner_stop");
-  EXPECT_TRUE(out.command.isZero());
-  EXPECT_FALSE(out.seed_control.isZero());
+  ASSERT_TRUE(std::holds_alternative<neupan_uav::SafetyStop>(out.decision()));
+  const auto& stop = std::get<neupan_uav::SafetyStop>(out.decision());
+  EXPECT_EQ(stop.cause, neupan_uav::SafetyStopCause::kClearanceViolation);
+  EXPECT_TRUE(out.commandToPublish().isZero());
+  EXPECT_FALSE(out.diagnostics().warm_start_seed.isZero());
   EXPECT_TRUE(planner.previousCommand().isZero());
 }
 
 TEST(PlannerWarmStart, InvalidInputsClearPreviousCommand) {
   neupan_uav::Planner planner(configWithCommand(
       (neupan_uav::Control() << 0.7, 0.6, 0.5, 0.4).finished()));
-  ASSERT_TRUE(planner.forward(basicInput()).ready);
+  ASSERT_TRUE(planner.forward(basicInput()).isTracking());
   ASSERT_FALSE(planner.previousCommand().isZero());
 
   neupan_uav::PlannerInput stale = basicInput();
   stale.stale = true;
-  const neupan_uav::PlannerOutput stale_out = planner.forward(stale);
-  EXPECT_FALSE(stale_out.ready);
-  EXPECT_EQ(stale_out.reason, "stale_input");
-  EXPECT_FALSE(stale_out.seed_control.isZero());
+  const neupan_uav::PlannerResult stale_out = planner.forward(stale);
+  ASSERT_TRUE(std::holds_alternative<neupan_uav::FaultStop>(
+      stale_out.decision()));
+  EXPECT_EQ(std::get<neupan_uav::FaultStop>(stale_out.decision()).fault,
+            neupan_uav::PlannerFault::kStaleInput);
+  EXPECT_TRUE(stale_out.commandToPublish().isZero());
+  EXPECT_FALSE(stale_out.diagnostics().warm_start_seed.isZero());
   EXPECT_TRUE(planner.previousCommand().isZero());
 
-  ASSERT_TRUE(planner.forward(basicInput()).ready);
+  ASSERT_TRUE(planner.forward(basicInput()).isTracking());
   neupan_uav::PlannerInput invalid = basicInput();
   invalid.valid = false;
-  const neupan_uav::PlannerOutput invalid_out = planner.forward(invalid);
-  EXPECT_FALSE(invalid_out.ready);
-  EXPECT_EQ(invalid_out.reason, "invalid_input");
-  EXPECT_FALSE(invalid_out.seed_control.isZero());
+  const neupan_uav::PlannerResult invalid_out = planner.forward(invalid);
+  ASSERT_TRUE(std::holds_alternative<neupan_uav::FaultStop>(
+      invalid_out.decision()));
+  EXPECT_EQ(std::get<neupan_uav::FaultStop>(invalid_out.decision()).fault,
+            neupan_uav::PlannerFault::kInvalidInput);
+  EXPECT_TRUE(invalid_out.commandToPublish().isZero());
+  EXPECT_FALSE(invalid_out.diagnostics().warm_start_seed.isZero());
   EXPECT_TRUE(planner.previousCommand().isZero());
 }

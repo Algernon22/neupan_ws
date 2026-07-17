@@ -229,8 +229,6 @@ std::optional<UavNode::LatestCloud> UavNode::processCloud(
   for (Eigen::Index i = 0; i < cloud.points_body.cols(); ++i) {
     cloud.points_body.col(i) = kept[static_cast<std::size_t>(i)];
   }
-  cloud.min_body_clearance =
-      minBodyClearance(cloud.points_body, body_half_extent_);
   return cloud;
 }
 
@@ -266,26 +264,26 @@ std::optional<UavNode::PlannerJob> UavNode::snapshotPlannerInputs() {
   std::lock_guard<std::mutex> lock(data_mutex_);
   if (stop_worker_) return std::nullopt;
   if (!latest_state_.has_value()) {
-    latest_result_.ready = false;
-    latest_result_.reason = "waiting_for_state";
+    latest_result_.publish_command = false;
+    latest_result_.arrived = false;
     return std::nullopt;
   }
   if (!latest_cloud_.has_value()) {
-    latest_result_.ready = false;
-    latest_result_.reason = "waiting_for_cloud";
+    latest_result_.publish_command = false;
+    latest_result_.arrived = false;
     return std::nullopt;
   }
 
   const double state_age = std::max(0.0, now_s - latest_state_->receive_time_s);
   const double cloud_age = std::max(0.0, now_s - latest_cloud_->receive_time_s);
   if (max_state_age_s_ > 0.0 && state_age > max_state_age_s_) {
-    latest_result_.ready = false;
-    latest_result_.reason = "stale_state";
+    latest_result_.publish_command = false;
+    latest_result_.arrived = false;
     return std::nullopt;
   }
   if (max_cloud_age_s_ > 0.0 && cloud_age > max_cloud_age_s_) {
-    latest_result_.ready = false;
-    latest_result_.reason = "stale_cloud";
+    latest_result_.publish_command = false;
+    latest_result_.arrived = false;
     return std::nullopt;
   }
 
@@ -302,14 +300,20 @@ UavNode::PlannerResult UavNode::runPlannerOnce(const PlannerJob& job) {
   input.state = job.state.state;
   input.obstacle_points =
       pointsBodyToWorld(job.cloud.points_body, job.state.state);
-  const neupan_uav::PlannerOutput out = planner_->forward(input);
+  const neupan_uav::PlannerResult out = planner_->forward(input);
+  const auto& diagnostics = out.diagnostics();
 
-  result.ready = out.ready;
-  result.reason = out.reason;
   result.generated_stamp_ns = nowNanoseconds();
+  result.command = out.commandToPublish();
+  result.publish_command = true;
+  result.arrived = std::holds_alternative<neupan_uav::GoalReached>(
+      out.decision());
 
-  if (out.ready) {
-    result.command = out.command;
+  if (const auto* fault =
+                 std::get_if<neupan_uav::FaultStop>(&out.decision())) {
+    RCLCPP_ERROR(get_logger(), "Planner fault: %s: %s",
+                 neupan_uav::toString(fault->fault).data(),
+                 fault->detail.c_str());
   }
 
   if (profile_planner_) {
@@ -317,21 +321,22 @@ UavNode::PlannerResult UavNode::runPlannerOnce(const PlannerJob& job) {
     std::snprintf(profile_log, sizeof(profile_log),
                   "Planner profile total=%.1fms pre=%.1fms dune=%.1fms "
                   "nrmp=%.1fms farfield=%d off=%.2f/%.2f cnt=%d/%d/%d "
-                  "obs=%zu->%zu->%zu osqp_status=%d iter=%d",
-                  1000.0 * out.profile.forward_sec,
-                  1000.0 * out.profile.preselect_sec,
-                  1000.0 * out.profile.dune_sec,
-                  1000.0 * out.profile.nrmp_sec,
-                  out.profile.farfield_active ? 1 : 0,
-                  out.profile.farfield_offset_m,
-                  out.profile.farfield_target_offset_m,
-                  out.profile.farfield_center_count,
-                  out.profile.farfield_left_count,
-                  out.profile.farfield_right_count,
-                  out.profile.input_obstacle_count,
-                  out.profile.preselected_obstacle_count,
-                  out.profile.dune_selected_count, out.profile.osqp_status,
-                  out.profile.osqp_iteration_count);
+	                  "obs=%zu->%zu->%zu osqp_status=%d iter=%d",
+	                  1000.0 * diagnostics.profile.forward_sec,
+	                  1000.0 * diagnostics.profile.preselect_sec,
+	                  1000.0 * diagnostics.profile.dune_sec,
+	                  1000.0 * diagnostics.profile.nrmp_sec,
+	                  diagnostics.profile.farfield_active ? 1 : 0,
+	                  diagnostics.profile.farfield_offset_m,
+	                  diagnostics.profile.farfield_target_offset_m,
+	                  diagnostics.profile.farfield_center_count,
+	                  diagnostics.profile.farfield_left_count,
+	                  diagnostics.profile.farfield_right_count,
+	                  diagnostics.profile.input_obstacle_count,
+	                  diagnostics.profile.preselected_obstacle_count,
+	                  diagnostics.profile.dune_selected_count,
+	                  diagnostics.profile.osqp_status,
+	                  diagnostics.profile.osqp_iteration_count);
     RCLCPP_INFO(get_logger(),
                 "%s", profile_log);
   }
@@ -357,33 +362,35 @@ void UavNode::plannerWorkerMain() {
     if (!job.has_value()) continue;
     try {
       storeLatestResult(runPlannerOnce(*job));
-    } catch (const std::exception& exc) {
-      logThrottledWarn("planner_forward", 1.0,
-                       std::string("Planner forward failed: ") + exc.what());
-      PlannerResult result;
-      result.ready = false;
-      result.reason = "planner_error";
-      storeLatestResult(result);
-    }
+	    } catch (const std::exception& exc) {
+	      logThrottledWarn("planner_forward", 1.0,
+	                       std::string("Planner forward failed: ") + exc.what());
+	      PlannerResult result;
+	      result.command = neupan_uav::Control::Zero();
+	      result.publish_command = true;
+	      result.arrived = false;
+	      result.generated_stamp_ns = nowNanoseconds();
+	      storeLatestResult(result);
+	    }
   }
 }
 
 void UavNode::publishLoop() {
   PlannerResult result;
-  {
-    std::lock_guard<std::mutex> lock(data_mutex_);
-    result = latest_result_;
-  }
-  if (!result.ready || !result.command.has_value()) return;
-  const rclcpp::Time stamp(static_cast<int64_t>(result.generated_stamp_ns));
-  const auto cmd =
-      controlToTwistStamped(*result.command, stamp, command_frame_);
-  cmd_pub_->publish(cmd);
+	  {
+	    std::lock_guard<std::mutex> lock(data_mutex_);
+	    result = latest_result_;
+	  }
+	  if (!result.publish_command) return;
+	  const rclcpp::Time stamp(static_cast<int64_t>(result.generated_stamp_ns));
+	  const auto cmd =
+	      controlToTwistStamped(result.command, stamp, command_frame_);
+	  cmd_pub_->publish(cmd);
 
-  std_msgs::msg::Bool arrived;
-  arrived.data = result.reason == "arrived";
-  arrived_pub_->publish(arrived);
-}
+	  std_msgs::msg::Bool arrived;
+	  arrived.data = result.arrived;
+	  arrived_pub_->publish(arrived);
+	}
 
 }  // namespace neupan_ros
 

@@ -3,6 +3,7 @@
 #include "neupan_uav/config.hpp"
 #include "neupan_uav/obstacle_preselector.hpp"
 #include "neupan_uav/pan.hpp"
+#include "neupan_uav/planner_result.hpp"
 #include "neupan_uav/robot_model.hpp"
 #include "neupan_uav/types.hpp"
 
@@ -18,7 +19,7 @@ class Planner {
  public:
   explicit Planner(const CompiledPlannerConfig& config);
 
-  PlannerOutput forward(const PlannerInput& input);
+  PlannerResult forward(const PlannerInput& input);
   void setRknnRunner(std::unique_ptr<RknnRunner> runner);
 
   void reset();
@@ -27,7 +28,7 @@ class Planner {
   Control previousCommand() const { return previous_command_; }
 
  private:
-  PlannerOutput invalidOutput(const std::string& reason) const;
+  PlannerFault classifyPlanningException(const std::exception& error) const;
   PanInput buildPanInput(const PlannerInput& input,
                          const ObstacleSelection& selected,
                          const Control& seed,

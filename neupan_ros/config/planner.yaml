@@ -1,13 +1,13 @@
 collision_threshold: 0.15
 receding: 25
 step_time: 0.1
-ref_speed: 3.0
+ref_speed: 1.0
 
 robot:
   length: 0.64
   width: 0.64
   height: 0.54
-  max_speed: [4.0, 4.0, 2.0, 0.8]
+  max_speed: [1.0, 1.0, 1.0, 0.8]
   max_acce: [2.5, 2.5, 1.5, 0.8]
   tau_velocity: [0.45, 0.45, 0.35]
   gain_velocity: [1.0, 1.0, 1.0]
@@ -25,7 +25,7 @@ ipath:
   warn_infeasible_ref_speed: true
   waypoints:
     - [0.0, 0.0, 2.0, 0.0]
-    - [20.0, 0.0, 2.0, 0.0]
+    - [5.0, 0.0, 2.0, 0.0]
   arrive_threshold: 0.8
 
 preselect:

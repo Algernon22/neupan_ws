@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <exception>
 #include <limits>
 #include <stdexcept>
 #include <utility>
@@ -73,157 +74,196 @@ void Planner::setRknnRunner(std::unique_ptr<RknnRunner> runner) {
   pan_.setRknnRunner(std::move(runner));
 }
 
-PlannerOutput Planner::forward(const PlannerInput& input) {
+PlannerResult Planner::forward(const PlannerInput& input) {
   const auto start = std::chrono::steady_clock::now();
   const Control seed = previous_command_;
+  PlannerDiagnostics diagnostics;
+  diagnostics.warm_start_seed = seed;
 
   if (!input.valid) {
     clearPreviousCommand();
-    PlannerOutput out = invalidOutput("invalid_input");
-    out.seed_control = seed;
-    return out;
+    return PlannerResult::faultStop(PlannerFault::kInvalidInput,
+                                    "planner input was marked invalid",
+                                    std::move(diagnostics));
   }
   if (input.stale) {
     clearPreviousCommand();
-    PlannerOutput out = invalidOutput("stale_input");
-    out.seed_control = seed;
-    return out;
+    return PlannerResult::faultStop(PlannerFault::kStaleInput,
+                                    "planner input is stale",
+                                    std::move(diagnostics));
   }
   if (!allFiniteState(input.state)) {
     clearPreviousCommand();
-    PlannerOutput out = invalidOutput("invalid_state");
-    out.seed_control = seed;
-    return out;
+    return PlannerResult::faultStop(PlannerFault::kInvalidState,
+                                    "state contains invalid values",
+                                    std::move(diagnostics));
   }
   if (input.obstacle_points.rows() != 3 ||
       !allFinite(input.obstacle_points)) {
     clearPreviousCommand();
-    PlannerOutput out = invalidOutput("invalid_obstacle_points");
-    out.seed_control = seed;
-    return out;
+    return PlannerResult::faultStop(
+        PlannerFault::kInvalidObstaclePoints,
+        "obstacle points must have shape 3xN and finite values",
+        std::move(diagnostics));
   }
   if (input.obstacle_velocities.size() != 0 &&
       (input.obstacle_velocities.rows() != 3 ||
        input.obstacle_velocities.cols() != input.obstacle_points.cols() ||
        !allFinite(input.obstacle_velocities))) {
     clearPreviousCommand();
-    PlannerOutput out = invalidOutput("invalid_obstacle_velocities");
-    out.seed_control = seed;
-    return out;
+    return PlannerResult::faultStop(
+        PlannerFault::kInvalidObstacleVelocities,
+        "obstacle velocities must be empty or finite with shape 3xN matching "
+        "obstacle points",
+        std::move(diagnostics));
   }
 
   const DynamicsState state = toDynamicsState(input.state, last_yaw_);
   updatePathProgress(state);
   last_yaw_ = state(3);
 
-  PlannerOutput out;
-  out.seed_control = seed;
-  out.profile.input_obstacle_count =
+  diagnostics.profile.input_obstacle_count =
       static_cast<std::size_t>(input.obstacle_points.cols());
 
-  if (hasArrived(state)) {
-    out.command = Control::Zero();
-    out.ready = true;
-    out.reason = "arrived";
-    out.arrive = true;
-    out.min_distance = minBodyClearance(state, input.obstacle_points);
+  const double raw_clearance = minBodyClearance(state, input.obstacle_points);
+  diagnostics.min_clearance = raw_clearance;
+
+  if (raw_clearance < config_.collisionThreshold()) {
     clearPreviousCommand();
     resetControlBuffer();
-    out.profile.forward_sec =
+    diagnostics.profile.forward_sec =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
             .count();
-    return out;
+    return PlannerResult::safetyStop(SafetyStopCause::kClearanceViolation,
+                                     raw_clearance,
+                                     config_.collisionThreshold(),
+                                     std::move(diagnostics));
+  }
+
+  if (hasArrived(state)) {
+    clearPreviousCommand();
+    resetControlBuffer();
+    diagnostics.profile.forward_sec =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
+            .count();
+    return PlannerResult::goalReached(std::move(diagnostics));
   }
 
   ObstacleSelection raw_selection;
   raw_selection.points = input.obstacle_points;
   raw_selection.velocities = input.obstacle_velocities;
   FarfieldGuideProfile farfield_profile;
-  PanInput pan_input = buildPanInput(input, raw_selection, seed,
-                                     &farfield_profile);
-  out.profile.farfield_sec = farfield_profile.total_sec;
-  out.profile.farfield_active = farfield_profile.active;
-  out.profile.farfield_near_m = farfield_profile.near_m;
-  out.profile.farfield_far_m = farfield_profile.far_m;
-  out.profile.farfield_offset_m = farfield_profile.offset_m;
-  out.profile.farfield_target_offset_m = farfield_profile.target_offset_m;
-  out.profile.farfield_center_count = farfield_profile.center_count;
-  out.profile.farfield_left_count = farfield_profile.left_count;
-  out.profile.farfield_right_count = farfield_profile.right_count;
-  out.profile.farfield_release_streak = farfield_profile.release_streak;
-  const ObstacleSelection selected =
-      preselector_.selectWithNominalTrajectory(
-          pan_input.nominal_states, input.obstacle_points,
-          input.obstacle_velocities, pan_input.attitude_horizon);
-  pan_input.obstacle_points = selected.points;
-  pan_input.obstacle_velocities = selected.velocities;
-  pan_input.selection_tags = selected.tags;
-  out.profile.input_obstacle_count = selected.profile.input_obstacle_count;
-  out.profile.corridor_obstacle_count =
-      selected.profile.corridor_obstacle_count;
-  out.profile.preselected_obstacle_count =
-      selected.profile.preselected_obstacle_count;
-  out.profile.preselect_max_count = selected.profile.preselect_max_count;
-  out.profile.preselect_sec = selected.profile.preselect_sec;
-  out.profile.preselect_corridor_sec =
-      selected.profile.preselect_corridor_sec;
-  out.profile.preselect_distance_sec =
-      selected.profile.preselect_distance_sec;
-  out.profile.preselect_select_sec = selected.profile.preselect_select_sec;
-  out.profile.hard_count = selected.profile.hard_count;
-  out.profile.nearest_quota = selected.profile.nearest_quota;
-  out.profile.nearest_selected = selected.profile.nearest_selected;
-  out.profile.temporal_quota = selected.profile.temporal_quota;
-  out.profile.continuity_hits = selected.profile.continuity_hits;
-  out.profile.continuity_selected = selected.profile.continuity_selected;
-  out.profile.diversity_quota = selected.profile.diversity_quota;
-  out.profile.diversity_candidates = selected.profile.diversity_candidates;
-  out.profile.diversity_selected = selected.profile.diversity_selected;
-  out.profile.fill_selected = selected.profile.fill_selected;
-  out.min_distance = minBodyClearance(state, selected.points);
 
-  if (out.min_distance < config_.collisionThreshold()) {
-    out.command = Control::Zero();
-    out.ready = true;
-    out.reason = "planner_stop";
-    out.stop = true;
-    clearPreviousCommand();
-    resetControlBuffer();
-    out.profile.forward_sec =
+  try {
+    PanInput pan_input = buildPanInput(input, raw_selection, seed,
+                                       &farfield_profile);
+    diagnostics.profile.farfield_sec = farfield_profile.total_sec;
+    diagnostics.profile.farfield_active = farfield_profile.active;
+    diagnostics.profile.farfield_near_m = farfield_profile.near_m;
+    diagnostics.profile.farfield_far_m = farfield_profile.far_m;
+    diagnostics.profile.farfield_offset_m = farfield_profile.offset_m;
+    diagnostics.profile.farfield_target_offset_m =
+        farfield_profile.target_offset_m;
+    diagnostics.profile.farfield_center_count = farfield_profile.center_count;
+    diagnostics.profile.farfield_left_count = farfield_profile.left_count;
+    diagnostics.profile.farfield_right_count = farfield_profile.right_count;
+    diagnostics.profile.farfield_release_streak =
+        farfield_profile.release_streak;
+    const ObstacleSelection selected =
+        preselector_.selectWithNominalTrajectory(
+            pan_input.nominal_states, input.obstacle_points,
+            input.obstacle_velocities, pan_input.attitude_horizon);
+    pan_input.obstacle_points = selected.points;
+    pan_input.obstacle_velocities = selected.velocities;
+    pan_input.selection_tags = selected.tags;
+    diagnostics.profile.input_obstacle_count =
+        selected.profile.input_obstacle_count;
+    diagnostics.profile.corridor_obstacle_count =
+        selected.profile.corridor_obstacle_count;
+    diagnostics.profile.preselected_obstacle_count =
+        selected.profile.preselected_obstacle_count;
+    diagnostics.profile.preselect_max_count =
+        selected.profile.preselect_max_count;
+    diagnostics.profile.preselect_sec = selected.profile.preselect_sec;
+    diagnostics.profile.preselect_corridor_sec =
+        selected.profile.preselect_corridor_sec;
+    diagnostics.profile.preselect_distance_sec =
+        selected.profile.preselect_distance_sec;
+    diagnostics.profile.preselect_select_sec =
+        selected.profile.preselect_select_sec;
+    diagnostics.profile.hard_count = selected.profile.hard_count;
+    diagnostics.profile.nearest_quota = selected.profile.nearest_quota;
+    diagnostics.profile.nearest_selected = selected.profile.nearest_selected;
+    diagnostics.profile.temporal_quota = selected.profile.temporal_quota;
+    diagnostics.profile.continuity_hits = selected.profile.continuity_hits;
+    diagnostics.profile.continuity_selected =
+        selected.profile.continuity_selected;
+    diagnostics.profile.diversity_quota = selected.profile.diversity_quota;
+    diagnostics.profile.diversity_candidates =
+        selected.profile.diversity_candidates;
+    diagnostics.profile.diversity_selected =
+        selected.profile.diversity_selected;
+    diagnostics.profile.fill_selected = selected.profile.fill_selected;
+
+    const double selected_clearance = minBodyClearance(state, selected.points);
+    diagnostics.min_clearance = selected_clearance;
+    if (selected_clearance < config_.collisionThreshold()) {
+      clearPreviousCommand();
+      resetControlBuffer();
+      diagnostics.profile.forward_sec =
+          std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
+              .count();
+      return PlannerResult::safetyStop(SafetyStopCause::kClearanceViolation,
+                                       selected_clearance,
+                                       config_.collisionThreshold(),
+                                       std::move(diagnostics));
+    }
+
+    const PanOutput pan_out = pan_.forward(pan_input);
+    Control command = robot_.clampControl(pan_out.command);
+    previous_command_ = command;
+
+    PlanBundle plan;
+    plan.trajectory = pan_out.trajectory;
+    plan.reference = pan_out.reference;
+    plan.control_trajectory = pan_out.control_trajectory;
+    plan.nominal_distance = pan_out.nominal_distance;
+    if (pan_out.control_trajectory.rows() == control_buffer_.rows() &&
+        pan_out.control_trajectory.cols() == control_buffer_.cols()) {
+      control_buffer_ = pan_out.control_trajectory;
+    }
+    diagnostics.profile.osqp_status = pan_out.profile.osqp_status;
+    diagnostics.profile.osqp_iteration_count =
+        pan_out.profile.osqp_iteration_count;
+    diagnostics.profile.osqp_solve_sec = pan_out.profile.osqp_solve_sec;
+    diagnostics.profile.osqp_run_time_sec = pan_out.profile.osqp_run_time_sec;
+    diagnostics.profile.pan_iterations = pan_out.profile.pan_iterations;
+    diagnostics.profile.pan_iteration_limit =
+        pan_out.profile.pan_iteration_limit;
+    diagnostics.profile.dune_sec = pan_out.profile.dune_sec;
+    diagnostics.profile.dune_inference_sec =
+        pan_out.profile.dune_inference_sec;
+    diagnostics.profile.dune_select_sec = pan_out.profile.dune_select_sec;
+    diagnostics.profile.nrmp_sec = pan_out.profile.nrmp_sec;
+    diagnostics.profile.dune_selected_count =
+        pan_out.profile.dune_selected_count;
+    if (std::isfinite(pan_out.min_distance)) {
+      diagnostics.min_clearance = pan_out.min_distance;
+    }
+    diagnostics.profile.forward_sec =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
             .count();
-    return out;
+    return PlannerResult::tracking(command, std::move(plan),
+                                   std::move(diagnostics));
+  } catch (const std::exception& error) {
+    clearPreviousCommand();
+    resetControlBuffer();
+    diagnostics.profile.forward_sec =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
+            .count();
+    return PlannerResult::faultStop(classifyPlanningException(error),
+                                    error.what(), std::move(diagnostics));
   }
-
-  const PanOutput pan_out = pan_.forward(pan_input);
-  out.command = robot_.clampControl(pan_out.command);
-  previous_command_ = out.command;
-  out.trajectory = pan_out.trajectory;
-  out.reference = pan_out.reference;
-  out.control_trajectory = pan_out.control_trajectory;
-  out.nominal_distance = pan_out.nominal_distance;
-  if (pan_out.control_trajectory.rows() == control_buffer_.rows() &&
-      pan_out.control_trajectory.cols() == control_buffer_.cols()) {
-    control_buffer_ = pan_out.control_trajectory;
-  }
-  out.profile.osqp_status = pan_out.profile.osqp_status;
-  out.profile.osqp_iteration_count = pan_out.profile.osqp_iteration_count;
-  out.profile.osqp_solve_sec = pan_out.profile.osqp_solve_sec;
-  out.profile.osqp_run_time_sec = pan_out.profile.osqp_run_time_sec;
-  out.profile.pan_iterations = pan_out.profile.pan_iterations;
-  out.profile.pan_iteration_limit = pan_out.profile.pan_iteration_limit;
-  out.profile.dune_sec = pan_out.profile.dune_sec;
-  out.profile.dune_inference_sec = pan_out.profile.dune_inference_sec;
-  out.profile.dune_select_sec = pan_out.profile.dune_select_sec;
-  out.profile.nrmp_sec = pan_out.profile.nrmp_sec;
-  out.profile.dune_selected_count = pan_out.profile.dune_selected_count;
-  if (std::isfinite(pan_out.min_distance)) {
-    out.min_distance = pan_out.min_distance;
-  }
-  out.profile.forward_sec =
-      std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
-          .count();
-  return out;
 }
 
 void Planner::reset() {
@@ -236,13 +276,20 @@ void Planner::reset() {
   arrive_latched_ = false;
 }
 
-PlannerOutput Planner::invalidOutput(const std::string& reason) const {
-  PlannerOutput out;
-  out.ready = false;
-  out.reason = reason;
-  out.command = Control::Zero();
-  out.seed_control = previous_command_;
-  return out;
+PlannerFault Planner::classifyPlanningException(
+    const std::exception& error) const {
+  const std::string detail = error.what();
+  if (detail.find("RKNN") != std::string::npos ||
+      detail.find("rknn") != std::string::npos ||
+      detail.find("DUNE") != std::string::npos ||
+      detail.find("dune") != std::string::npos ||
+      detail.find("inference") != std::string::npos) {
+    return PlannerFault::kInferenceFailure;
+  }
+  if (detail.find("unavailable") != std::string::npos) {
+    return PlannerFault::kSolverUnavailable;
+  }
+  return PlannerFault::kSolverFailure;
 }
 
 PanInput Planner::buildPanInput(const PlannerInput& input,

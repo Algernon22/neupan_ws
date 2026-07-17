@@ -781,7 +781,7 @@ void writeMatrix(std::ostream& out, const Eigen::MatrixXd& matrix) {
 }
 
 void writeReport(const std::string& path, const Fixture& fixture,
-                 const std::vector<neupan_uav::PlannerOutput>& outputs) {
+                 const std::vector<neupan_uav::PlannerResult>& outputs) {
   std::filesystem::create_directories(std::filesystem::path(path).parent_path());
   std::ofstream out(path);
   if (!out) throw std::runtime_error("failed to open output: " + path);
@@ -792,51 +792,89 @@ void writeReport(const std::string& path, const Fixture& fixture,
   out << "  \"frames\": [\n";
   for (std::size_t i = 0; i < outputs.size(); ++i) {
     const auto& output = outputs[i];
+    const auto* tracking = std::get_if<neupan_uav::Tracking>(&output.decision());
+    const auto* goal =
+        std::get_if<neupan_uav::GoalReached>(&output.decision());
+    const auto* safety_stop =
+        std::get_if<neupan_uav::SafetyStop>(&output.decision());
+    const auto* fault = std::get_if<neupan_uav::FaultStop>(&output.decision());
     if (i > 0) out << ",\n";
     out << "    {\n";
     out << "      \"frame_index\": " << i << ",\n";
-    out << "      \"ready\": " << (output.ready ? "true" : "false") << ",\n";
-    out << "      \"reason\": \"" << output.reason << "\",\n";
-    out << "      \"arrive\": " << (output.arrive ? "true" : "false") << ",\n";
-    out << "      \"stop\": " << (output.stop ? "true" : "false") << ",\n";
+    out << "      \"state\": \"";
+    if (tracking != nullptr) {
+      out << "tracking";
+    } else if (goal != nullptr) {
+      out << "goal_reached";
+    } else if (safety_stop != nullptr) {
+      out << "safety_stop";
+    } else if (fault != nullptr) {
+      out << "fault";
+    } else {
+      out << "unknown";
+    }
+    out << "\",\n";
+    if (safety_stop != nullptr) {
+      out << "      \"safety_stop_cause\": \""
+          << neupan_uav::toString(safety_stop->cause) << "\",\n";
+      out << "      \"observed_clearance\": ";
+      writeJsonNumber(out, safety_stop->observed_clearance);
+      out << ",\n      \"required_clearance\": ";
+      writeJsonNumber(out, safety_stop->required_clearance);
+      out << ",\n";
+    }
+    if (fault != nullptr) {
+      out << "      \"fault\": \"" << neupan_uav::toString(fault->fault)
+          << "\",\n";
+      out << "      \"detail\": \"" << fault->detail << "\",\n";
+    }
     out << "      \"command\": ";
-    writeVector(out, output.command);
+    writeVector(out, output.commandToPublish());
     out << ",\n      \"trajectory\": ";
-    writeMatrix(out, output.trajectory);
+    writeMatrix(out, tracking != nullptr ? tracking->plan.trajectory
+                                         : neupan_uav::Trajectory());
     out << ",\n      \"reference\": ";
-    writeMatrix(out, output.reference);
+    writeMatrix(out, tracking != nullptr ? tracking->plan.reference
+                                         : neupan_uav::Trajectory());
     out << ",\n      \"control_trajectory\": ";
-    writeMatrix(out, output.control_trajectory);
+    writeMatrix(out, tracking != nullptr ? tracking->plan.control_trajectory
+                                         : Eigen::MatrixXd());
     out << ",\n      \"nominal_distance\": ";
-    writeVector(out, output.nominal_distance.transpose());
+    writeVector(out,
+                tracking != nullptr ? tracking->plan.nominal_distance.transpose()
+                                    : Eigen::VectorXd());
     out << ",\n      \"min_distance\": ";
-    writeJsonNumber(out, output.min_distance);
+    if (output.diagnostics().min_clearance.has_value()) {
+      writeJsonNumber(out, *output.diagnostics().min_clearance);
+    } else {
+      out << "null";
+    }
     out << ",\n";
     out << "      \"profile\": {\n";
-    out << "        \"forward_sec\": " << output.profile.forward_sec << ",\n";
-    out << "        \"preselect_sec\": " << output.profile.preselect_sec << ",\n";
-    out << "        \"dune_sec\": " << output.profile.dune_sec << ",\n";
-    out << "        \"dune_inference_sec\": " << output.profile.dune_inference_sec << ",\n";
-    out << "        \"dune_select_sec\": " << output.profile.dune_select_sec << ",\n";
-    out << "        \"nrmp_sec\": " << output.profile.nrmp_sec << ",\n";
-    out << "        \"input_obstacle_count\": " << output.profile.input_obstacle_count << ",\n";
-    out << "        \"preselected_obstacle_count\": " << output.profile.preselected_obstacle_count << ",\n";
-    out << "        \"dune_selected_count\": " << output.profile.dune_selected_count << ",\n";
-    out << "        \"osqp_status\": " << output.profile.osqp_status << ",\n";
-    out << "        \"osqp_iteration_count\": " << output.profile.osqp_iteration_count << ",\n";
-    out << "        \"osqp_solve_sec\": " << output.profile.osqp_solve_sec << ",\n";
-    out << "        \"pan_iterations\": " << output.profile.pan_iterations << ",\n";
-    out << "        \"pan_iteration_limit\": " << output.profile.pan_iteration_limit << ",\n";
-    out << "        \"farfield_sec\": " << output.profile.farfield_sec << ",\n";
-    out << "        \"farfield_active\": " << (output.profile.farfield_active ? "true" : "false") << ",\n";
-    out << "        \"farfield_near_m\": " << output.profile.farfield_near_m << ",\n";
-    out << "        \"farfield_far_m\": " << output.profile.farfield_far_m << ",\n";
-    out << "        \"farfield_offset_m\": " << output.profile.farfield_offset_m << ",\n";
-    out << "        \"farfield_target_offset_m\": " << output.profile.farfield_target_offset_m << ",\n";
-    out << "        \"farfield_center_count\": " << output.profile.farfield_center_count << ",\n";
-    out << "        \"farfield_left_count\": " << output.profile.farfield_left_count << ",\n";
-    out << "        \"farfield_right_count\": " << output.profile.farfield_right_count << ",\n";
-    out << "        \"farfield_release_streak\": " << output.profile.farfield_release_streak << "\n";
+    out << "        \"forward_sec\": " << output.diagnostics().profile.forward_sec << ",\n";
+    out << "        \"preselect_sec\": " << output.diagnostics().profile.preselect_sec << ",\n";
+    out << "        \"dune_sec\": " << output.diagnostics().profile.dune_sec << ",\n";
+    out << "        \"dune_inference_sec\": " << output.diagnostics().profile.dune_inference_sec << ",\n";
+    out << "        \"dune_select_sec\": " << output.diagnostics().profile.dune_select_sec << ",\n";
+    out << "        \"nrmp_sec\": " << output.diagnostics().profile.nrmp_sec << ",\n";
+    out << "        \"input_obstacle_count\": " << output.diagnostics().profile.input_obstacle_count << ",\n";
+    out << "        \"preselected_obstacle_count\": " << output.diagnostics().profile.preselected_obstacle_count << ",\n";
+    out << "        \"dune_selected_count\": " << output.diagnostics().profile.dune_selected_count << ",\n";
+    out << "        \"osqp_status\": " << output.diagnostics().profile.osqp_status << ",\n";
+    out << "        \"osqp_iteration_count\": " << output.diagnostics().profile.osqp_iteration_count << ",\n";
+    out << "        \"osqp_solve_sec\": " << output.diagnostics().profile.osqp_solve_sec << ",\n";
+    out << "        \"pan_iterations\": " << output.diagnostics().profile.pan_iterations << ",\n";
+    out << "        \"pan_iteration_limit\": " << output.diagnostics().profile.pan_iteration_limit << ",\n";
+    out << "        \"farfield_sec\": " << output.diagnostics().profile.farfield_sec << ",\n";
+    out << "        \"farfield_active\": " << (output.diagnostics().profile.farfield_active ? "true" : "false") << ",\n";
+    out << "        \"farfield_near_m\": " << output.diagnostics().profile.farfield_near_m << ",\n";
+    out << "        \"farfield_far_m\": " << output.diagnostics().profile.farfield_far_m << ",\n";
+    out << "        \"farfield_offset_m\": " << output.diagnostics().profile.farfield_offset_m << ",\n";
+    out << "        \"farfield_target_offset_m\": " << output.diagnostics().profile.farfield_target_offset_m << ",\n";
+    out << "        \"farfield_center_count\": " << output.diagnostics().profile.farfield_center_count << ",\n";
+    out << "        \"farfield_left_count\": " << output.diagnostics().profile.farfield_left_count << ",\n";
+    out << "        \"farfield_right_count\": " << output.diagnostics().profile.farfield_right_count << ",\n";
+    out << "        \"farfield_release_streak\": " << output.diagnostics().profile.farfield_release_streak << "\n";
     out << "      }\n";
     out << "    }";
   }
@@ -851,7 +889,7 @@ int main(int argc, char** argv) {
     const Args args = parseArgs(argc, argv);
     const Fixture fixture = readFixture(args.fixture_path);
     neupan_uav::Planner planner(makePlannerConfig(fixture));
-    std::vector<neupan_uav::PlannerOutput> outputs;
+    std::vector<neupan_uav::PlannerResult> outputs;
     outputs.reserve(fixture.frames.size());
     for (const FrameFixture& frame : fixture.frames) {
       neupan_uav::PlannerInput input;

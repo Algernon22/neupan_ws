@@ -152,20 +152,6 @@ neupan_uav::PointMatrix pointsBodyToWorld(
   return (rot * points_body).colwise() + state.position_world;
 }
 
-double minBodyClearance(const neupan_uav::PointMatrix& points_body,
-                        const Eigen::Vector3d& body_half_extent) {
-  if (points_body.rows() != 3 || points_body.cols() == 0) {
-    return std::numeric_limits<double>::infinity();
-  }
-  double min_clearance = std::numeric_limits<double>::infinity();
-  for (Eigen::Index col = 0; col < points_body.cols(); ++col) {
-    const Eigen::Vector3d delta =
-        (points_body.col(col).cwiseAbs() - body_half_extent).cwiseMax(0.0);
-    min_clearance = std::min(min_clearance, delta.norm());
-  }
-  return min_clearance;
-}
-
 std::uint64_t stampToNanoseconds(const builtin_interfaces::msg::Time& stamp) {
   return static_cast<std::uint64_t>(stamp.sec) * 1000000000ULL +
          static_cast<std::uint64_t>(stamp.nanosec);

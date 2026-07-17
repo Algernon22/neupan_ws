@@ -31,8 +31,6 @@ std::optional<neupan_uav::PointMatrix> readXyzPoints(
 neupan_uav::PointMatrix pointsBodyToWorld(
     const neupan_uav::PointMatrix& points_body,
     const neupan_uav::UavState& state);
-double minBodyClearance(const neupan_uav::PointMatrix& points_body,
-                        const Eigen::Vector3d& body_half_extent);
 
 std::uint64_t stampToNanoseconds(const builtin_interfaces::msg::Time& stamp);
 double stampNanosecondsToSeconds(std::uint64_t stamp_ns);

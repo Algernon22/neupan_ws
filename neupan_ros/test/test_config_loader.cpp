@@ -18,17 +18,17 @@ TEST(ConfigLoader, LoadsCurrentPlannerYamlShape) {
 
   EXPECT_EQ(config.grid.horizon_steps, 25);
   EXPECT_NEAR(config.grid.dt, 0.1, 1e-12);
-  EXPECT_NEAR(config.ref_speed, 3.0, 1e-12);
+  EXPECT_NEAR(config.ref_speed, 1.0, 1e-12);
   EXPECT_NEAR(config.collision_threshold, 0.15, 1e-12);
   EXPECT_NEAR(config.arrive_threshold, 0.8, 1e-12);
   EXPECT_TRUE(config.has_goal);
   ASSERT_EQ(config.initial_path.waypoints.size(), 2U);
-  EXPECT_NEAR(config.initial_path.waypoints.back()(0), 20.0, 1e-12);
+  EXPECT_NEAR(config.initial_path.waypoints.back()(0), 5.0, 1e-12);
   EXPECT_NEAR(config.robot.body_half_extent(0), 0.32, 1e-12);
   EXPECT_NEAR(config.robot.body_half_extent(1), 0.32, 1e-12);
   EXPECT_NEAR(config.robot.body_half_extent(2), 0.27, 1e-12);
-  EXPECT_NEAR(config.robot.max_control(0), 4.0, 1e-12);
-  EXPECT_NEAR(config.robot.max_control(2), 2.0, 1e-12);
+  EXPECT_NEAR(config.robot.max_control(0), 1.0, 1e-12);
+  EXPECT_NEAR(config.robot.max_control(2), 1.0, 1e-12);
   EXPECT_TRUE(config.preselect.enabled);
   EXPECT_EQ(config.preselect.per_step, 4);
   EXPECT_NEAR(config.preselect.corridor_margin(0), 6.0, 1e-12);
@@ -86,8 +86,8 @@ TEST(ConfigLoader, LoadedConfigConstructsPlanner) {
     neupan_uav::PlannerInput input;
     input.state.position_world << 0.0, 0.0, 2.0;
     input.obstacle_points = neupan_uav::emptyPointMatrix();
-    const neupan_uav::PlannerOutput output = planner.forward(input);
-    EXPECT_TRUE(output.ready);
+    const neupan_uav::PlannerResult output = planner.forward(input);
+    EXPECT_TRUE(output.isTracking());
   } catch (const std::exception& exc) {
     FAIL() << exc.what();
   }
