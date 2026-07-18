@@ -206,13 +206,13 @@ void validateRotations(const std::vector<Eigen::Matrix3d>& rotations,
 }
 
 std::vector<std::vector<int>> quotaSelectIndices(
-    const std::vector<std::vector<float>>& distance_batch,
+    const std::vector<std::vector<float>>& margin_batch,
     const std::vector<unsigned char>* selection_tags, int select_num,
     double nearest_ratio, double temporal_ratio, double diversity_ratio,
     DuneSelectionProfile* profile) {
-  const int num_steps = static_cast<int>(distance_batch.size());
+  const int num_steps = static_cast<int>(margin_batch.size());
   const int num_points =
-      num_steps == 0 ? 0 : static_cast<int>(distance_batch.front().size());
+      num_steps == 0 ? 0 : static_cast<int>(margin_batch.front().size());
   const int k = std::min(num_points, select_num);
   std::vector<std::vector<int>> selected_by_step(
       static_cast<std::size_t>(num_steps));
@@ -241,7 +241,7 @@ std::vector<std::vector<int>> quotaSelectIndices(
 
   for (int step = 0; step < num_steps; ++step) {
     const std::vector<int> ordered =
-        stableArgsort(distance_batch[static_cast<std::size_t>(step)]);
+        stableArgsort(margin_batch[static_cast<std::size_t>(step)]);
 
     if (!temporal_active && !diversity_active) {
       std::vector<int> selected(ordered.begin(), ordered.begin() + k);
@@ -323,31 +323,6 @@ std::vector<std::vector<int>> quotaSelectIndices(
 DunePostprocessor::DunePostprocessor(DunePostprocessorConfig config)
     : config_(normalizeConfig(std::move(config))), configured_(true) {}
 
-DuneResult DunePostprocessor::process(const PointMatrix& obstacle_points) const {
-  if (obstacle_points.rows() != 3) {
-    throw std::invalid_argument("DUNE obstacle points must have shape 3xN");
-  }
-  if (!allFinite(obstacle_points)) {
-    throw std::invalid_argument("DUNE obstacle points must be finite");
-  }
-
-  DuneResult result;
-  result.selected_count = static_cast<std::size_t>(obstacle_points.cols());
-  result.selected_points = obstacle_points;
-  result.profile.dune_selected_count = result.selected_count;
-  if (obstacle_points.cols() == 0) {
-    result.min_distance = std::numeric_limits<double>::infinity();
-    return result;
-  }
-
-  double min_distance = std::numeric_limits<double>::infinity();
-  for (Eigen::Index col = 0; col < obstacle_points.cols(); ++col) {
-    min_distance = std::min(min_distance, obstacle_points.col(col).norm());
-  }
-  result.min_distance = min_distance;
-  return result;
-}
-
 DuneResult DunePostprocessor::process(
     const DuneMatrix& raw_mu, const std::vector<PointMatrix>& point_flow,
     const std::vector<Eigen::Matrix3d>& rotations,
@@ -388,7 +363,7 @@ DuneResult DunePostprocessor::process(
       throw std::invalid_argument(
           "raw_mu must have shape ((receding+1)*N) x edge_dim");
     }
-    result.min_distance = std::numeric_limits<double>::infinity();
+    result.min_margin = std::numeric_limits<double>::infinity();
     result.profile.dune_select_sec = elapsedSeconds(select_start);
     result.profile.dune_selected_count = 0;
     return result;
@@ -413,10 +388,10 @@ DuneResult DunePostprocessor::process(
 
   std::vector<DuneMatrix> mu_batch;
   std::vector<DuneMatrix> lambda_batch;
-  std::vector<std::vector<float>> distance_batch;
+  std::vector<std::vector<float>> margin_batch;
   mu_batch.reserve(static_cast<std::size_t>(num_steps));
   lambda_batch.reserve(static_cast<std::size_t>(num_steps));
-  distance_batch.reserve(static_cast<std::size_t>(num_steps));
+  margin_batch.reserve(static_cast<std::size_t>(num_steps));
 
   for (int step = 0; step < num_steps; ++step) {
     DuneMatrix mu(config_.edge_dim, point_count);
@@ -430,30 +405,30 @@ DuneResult DunePostprocessor::process(
         rotations[static_cast<std::size_t>(step)].cast<float>();
     lambda_batch.push_back(-(rotation * config_.G.transpose() * mu));
 
-    std::vector<float> distance(static_cast<std::size_t>(point_count), 0.0F);
+    std::vector<float> margin(static_cast<std::size_t>(point_count), 0.0F);
     const DuneMatrix flow =
         point_flow[static_cast<std::size_t>(step)].cast<float>();
     for (int point = 0; point < point_count; ++point) {
       const Eigen::VectorXf temp =
           config_.G * flow.col(point) - config_.h;
-      distance[static_cast<std::size_t>(point)] =
+      margin[static_cast<std::size_t>(point)] =
           mu.col(point).dot(temp);
     }
-    distance_batch.push_back(std::move(distance));
+    margin_batch.push_back(std::move(margin));
   }
 
-  result.min_distance =
-      distance_batch.empty()
+  result.min_margin =
+      margin_batch.empty()
           ? std::numeric_limits<double>::infinity()
           : static_cast<double>(
-                *std::min_element(distance_batch.front().begin(),
-                                  distance_batch.front().end()));
+                *std::min_element(margin_batch.front().begin(),
+                                  margin_batch.front().end()));
 
   DuneSelectionProfile selection_profile;
   const int select_num = std::min(
       point_count, static_cast<int>(config_.select_num));
   const std::vector<std::vector<int>> selected_by_step = quotaSelectIndices(
-      distance_batch, selection_tags, select_num, config_.select_nearest_ratio,
+      margin_batch, selection_tags, select_num, config_.select_nearest_ratio,
       config_.select_temporal_ratio, config_.select_diversity_ratio,
       &selection_profile);
 

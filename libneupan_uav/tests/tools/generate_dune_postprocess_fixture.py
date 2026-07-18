@@ -62,12 +62,12 @@ def append_ranked(
 
 
 def quota_select_indices(
-    distance_batch: np.ndarray,
+    margin_batch: np.ndarray,
     tags: np.ndarray,
     select_num: int,
     ratios: tuple[float, float, float],
 ) -> tuple[np.ndarray, dict[str, float]]:
-    num_steps, num_points = distance_batch.shape
+    num_steps, num_points = margin_batch.shape
     k = min(num_points, int(select_num))
     if k <= 0:
         return np.zeros((num_steps, 0), dtype=np.int64), {
@@ -76,7 +76,7 @@ def quota_select_indices(
             "diversity": 0.0,
         }
 
-    ordered = np.argsort(distance_batch, axis=1, kind="stable")
+    ordered = np.argsort(margin_batch, axis=1, kind="stable")
     nearest_quota, temporal_quota, diversity_quota = quota_counts(k, ratios)
     temporal_mask = tags[0]
     diversity_mask = tags[1]
@@ -222,12 +222,12 @@ def main() -> None:
     projected_mu = np.ascontiguousarray(projected_mu / np.maximum(dual_norm, 1.0))
     mu_batch = projected_mu.reshape(steps, num_points, edge_dim).transpose(0, 2, 1)
     lambda_batch = -np.matmul(np.matmul(rotations, G.T), mu_batch)
-    distance_batch = np.sum(
+    margin_batch = np.sum(
         mu_batch * (np.matmul(G[None, :, :], point_flow) - h.reshape(1, edge_dim, 1)),
         axis=1,
     )
-    min_distance = float(np.min(distance_batch[0]))
-    selected, profile = quota_select_indices(distance_batch, tag_mask, select_num, ratios)
+    min_margin = float(np.min(margin_batch[0]))
+    selected, profile = quota_select_indices(margin_batch, tag_mask, select_num, ratios)
     k = int(selected.shape[1])
     mu_selected = np.take_along_axis(
         mu_batch, np.broadcast_to(selected[:, None, :], (steps, edge_dim, k)), axis=2
@@ -257,7 +257,7 @@ def main() -> None:
         write_array(stream, "rotations", rotations)
         write_array(stream, "obstacle_points", obstacle_points)
         write_array(stream, "tags", tag_bits)
-        stream.write(f"expected_min_distance {min_distance:.10g}\n")
+        stream.write(f"expected_min_margin {min_margin:.10g}\n")
         stream.write(f"expected_selected_count {k}\n")
         stream.write(
             "expected_profile "

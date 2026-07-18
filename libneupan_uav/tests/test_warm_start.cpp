@@ -31,7 +31,7 @@ neupan_uav::CompiledPlannerConfig buildConfig(
 neupan_uav::CompiledPlannerConfig configWithCommand(
     const neupan_uav::Control& command) {
   neupan_uav::PlannerOptions options;
-  options.placeholder_command = command;
+  options.default_command = command;
   options.robot.max_control =
       neupan_uav::Control::Constant(std::numeric_limits<double>::infinity());
   return buildConfig(std::move(options));
@@ -80,7 +80,7 @@ TEST(PlannerWarmStart, SuccessfulForwardSeedsNextCycleWithPublishedCommand) {
 
 TEST(PlannerWarmStart, StoresClampedCommandForNextSeed) {
   neupan_uav::PlannerOptions options;
-  options.placeholder_command << 2.0, -2.0, 0.5, 3.0;
+  options.default_command << 2.0, -2.0, 0.5, 3.0;
   options.robot.max_control << 0.4, 0.3, 1.0, 0.2;
   neupan_uav::Planner planner(buildConfig(std::move(options)));
 
@@ -111,7 +111,7 @@ TEST(PlannerWarmStart, ResetClearsPreviousCommand) {
 
 TEST(PlannerWarmStart, ArriveReturnsZeroAndResetsNextSeed) {
   neupan_uav::PlannerOptions options;
-  options.placeholder_command << 0.7, 0.0, 0.0, 0.0;
+  options.default_command << 0.7, 0.0, 0.0, 0.0;
   options.has_goal = true;
   options.goal_position = Eigen::Vector3d(9.0, 2.0, 3.0);
   options.arrive_threshold = 0.5;
@@ -131,7 +131,7 @@ TEST(PlannerWarmStart, ArriveReturnsZeroAndResetsNextSeed) {
 
 TEST(PlannerWarmStart, StopReturnsZeroAndResetsNextSeed) {
   neupan_uav::PlannerOptions options;
-  options.placeholder_command << 0.7, 0.0, 0.0, 0.0;
+  options.default_command << 0.7, 0.0, 0.0, 0.0;
   options.collision_threshold = 0.2;
   options.robot.body_half_extent = Eigen::Vector3d::Zero();
   neupan_uav::Planner planner(buildConfig(std::move(options)));

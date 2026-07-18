@@ -234,8 +234,8 @@ PlannerResult Planner::forward(const PlannerInput& input) {
     diagnostics.profile.nrmp_sec = pan_out.profile.nrmp_sec;
     diagnostics.profile.dune_selected_count =
         pan_out.profile.dune_selected_count;
-    if (std::isfinite(pan_out.min_distance)) {
-      diagnostics.dune_margin = pan_out.min_distance;
+    if (std::isfinite(pan_out.dune_min_margin)) {
+      diagnostics.dune_margin = pan_out.dune_min_margin;
     }
     diagnostics.profile.forward_sec =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
@@ -376,7 +376,7 @@ Control Planner::desiredControl(const DynamicsState& state) const {
     return robot_.clampControl(desired);
   }
 
-  Control desired = config_.placeholderCommand();
+  Control desired = config_.defaultCommand();
   if (config_.hasGoal()) {
     const Eigen::Vector3d pos = state.head<3>();
     const Eigen::Vector3d delta = config_.goalPosition() - pos;
@@ -386,7 +386,7 @@ Control Planner::desiredControl(const DynamicsState& state) const {
       desired.head<3>() =
           delta / distance * std::max(0.0, config_.refSpeed());
     }
-    desired(3) = config_.placeholderCommand()(3);
+    desired(3) = config_.defaultCommand()(3);
   }
   return robot_.clampControl(desired);
 }

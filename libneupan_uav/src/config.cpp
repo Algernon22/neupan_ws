@@ -248,7 +248,7 @@ CompiledPlannerConfig compilePlannerConfig(
   out.arrive_threshold_ = options.arrive_threshold;
   out.has_goal_ = options.has_goal;
   out.goal_position_ = options.goal_position;
-  out.placeholder_command_ = options.placeholder_command;
+  out.default_command_ = options.default_command;
   out.robot_ = makeRobotConfig(options.robot);
   out.preselect_ = makePreselectorConfig(options, dune_capacity);
   out.farfield_guide_ = options.farfield_guide;

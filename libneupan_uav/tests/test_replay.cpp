@@ -57,7 +57,7 @@ neupan_uav::PlannerOptions fullPlannerOptions(bool with_obstacles) {
   options.grid.dt = 0.1;
   options.robot.body_half_extent = Eigen::Vector3d(0.23, 0.23, 0.06);
   options.ref_speed = 1.0;
-  options.placeholder_command << 0.6, 0.0, 0.0, 0.0;
+  options.default_command << 0.6, 0.0, 0.0, 0.0;
   options.collision_threshold = 0.0;
   options.preselect.max_points = 4;
   options.preselect.per_step = 0;
@@ -96,7 +96,7 @@ const neupan_uav::Tracking& tracking(
 
 TEST(PlannerReplaySkeleton, EmptyAndStaticObstacleScenariosAreDeterministic) {
   neupan_uav::PlannerOptions options;
-  options.placeholder_command << 0.2, -0.1, 0.05, 0.01;
+  options.default_command << 0.2, -0.1, 0.05, 0.01;
   options.collision_threshold = 0.0;
   const neupan_uav::CompiledPlannerConfig config =
       buildConfig(std::move(options));

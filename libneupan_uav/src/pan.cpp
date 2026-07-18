@@ -105,8 +105,9 @@ std::pair<double, double> duneDiff(
 PAN::PAN(PanConfig config)
     : config_(std::move(config)),
       nrmp_(config_.nrmp),
-      dune_(config_.dune.has_value() ? DunePostprocessor(*config_.dune)
-                                     : DunePostprocessor()),
+      dune_(config_.dune.has_value()
+                ? std::make_optional<DunePostprocessor>(*config_.dune)
+                : std::nullopt),
       point_flow_(config_.point_flow) {
   if (config_.rknn_mode == RknnRunnerMode::kRuntime) {
     RknnRunnerConfig runner_config;
@@ -183,7 +184,7 @@ PanOutput PAN::forward(const PanInput& input) {
       out.profile.continuity_selected =
           dune_result.profile.continuity_selected;
       out.profile.diversity_selected = dune_result.profile.diversity_selected;
-      out.min_distance = dune_result.min_distance;
+      out.dune_min_margin = dune_result.min_margin;
     }
 
     const auto nrmp_start = Clock::now();
@@ -213,9 +214,8 @@ PanOutput PAN::forward(const PanInput& input) {
 }
 
 DuneResult PAN::runDune(const PanInput& input) {
-  if (!config_.dune.has_value()) {
-    DunePostprocessor fallback;
-    return fallback.process(input.obstacle_points);
+  if (!dune_.has_value()) {
+    return DuneResult();
   }
   if (rknn_runner_ == nullptr) {
     throw std::runtime_error(
@@ -226,11 +226,11 @@ DuneResult PAN::runDune(const PanInput& input) {
       input.nominal_states, input.obstacle_points, input.obstacle_velocities,
       input.attitude_horizon);
   const RknnFloatMatrix raw_mu = rknn_runner_->inferRawMu(flow.point_flow);
-  return dune_.process(raw_mu, flow.point_flow, flow.rotations,
-                       flow.obstacle_points_by_step,
-                       input.selection_tags.empty() ? nullptr
-                                                    : &input.selection_tags,
-                       rknn_runner_->profile().inference_sec);
+  return dune_->process(raw_mu, flow.point_flow, flow.rotations,
+                        flow.obstacle_points_by_step,
+                        input.selection_tags.empty() ? nullptr
+                                                     : &input.selection_tags,
+                        rknn_runner_->profile().inference_sec);
 }
 
 NrmpInput PAN::buildNrmpInput(const PanInput& input,

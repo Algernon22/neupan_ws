@@ -34,7 +34,7 @@ struct DuneSelectionProfile {
 
 struct DuneResult {
   std::size_t selected_count = 0;
-  double min_distance = std::numeric_limits<double>::infinity();
+  double min_margin = std::numeric_limits<double>::infinity();
   PointMatrix selected_points = emptyPointMatrix();
   std::vector<DuneMatrix> mu_batch;
   std::vector<DuneMatrix> lambda_batch;
@@ -45,14 +45,10 @@ struct DuneResult {
 
 class DunePostprocessor {
  public:
-  DunePostprocessor() = default;
+  DunePostprocessor() = delete;
   explicit DunePostprocessor(DunePostprocessorConfig config);
 
   const DunePostprocessorConfig& config() const { return config_; }
-
-  // Compatibility helper for the stage-2 skeleton. Full DUNE postprocessing
-  // uses the raw-mu overload below.
-  DuneResult process(const PointMatrix& obstacle_points) const;
 
   DuneResult process(
       const DuneMatrix& raw_mu,

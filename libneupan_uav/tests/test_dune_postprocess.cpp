@@ -30,7 +30,7 @@ struct ParityFixture {
   std::vector<Eigen::Matrix3d> rotations;
   std::vector<neupan_uav::PointMatrix> obstacle_points;
   std::vector<unsigned char> tags;
-  double expected_min_distance = 0.0;
+  double expected_min_margin = 0.0;
   std::size_t expected_selected_count = 0;
   double expected_nearest = 0.0;
   double expected_temporal = 0.0;
@@ -239,8 +239,8 @@ ParityFixture loadParityFixture() {
   fixture.rotations = readRotationBatch(stream);
   fixture.obstacle_points = readPointBatch(stream, "obstacle_points");
   fixture.tags = readTags(stream);
-  fixture.expected_min_distance =
-      readNamedDouble(stream, "expected_min_distance");
+  fixture.expected_min_margin =
+      readNamedDouble(stream, "expected_min_margin");
   fixture.expected_selected_count = static_cast<std::size_t>(
       readNamedInt(stream, "expected_selected_count"));
   expectToken(stream, "expected_profile");
@@ -257,32 +257,7 @@ ParityFixture loadParityFixture() {
 
 }  // namespace
 
-TEST(DunePostprocessor, EmptyPointsProduceInfiniteDistance) {
-  neupan_uav::DunePostprocessor postprocessor;
-
-  const neupan_uav::DuneResult result =
-      postprocessor.process(neupan_uav::emptyPointMatrix());
-
-  EXPECT_EQ(result.selected_count, 0u);
-  EXPECT_TRUE(std::isinf(result.min_distance));
-  EXPECT_EQ(result.selected_points.cols(), 0);
-}
-
-TEST(DunePostprocessor, ComputesNearestPointDistance) {
-  neupan_uav::PointMatrix points(3, 3);
-  points << 3.0, 1.0, 0.0,
-            4.0, 0.0, 0.0,
-            0.0, 0.0, 2.0;
-  neupan_uav::DunePostprocessor postprocessor;
-
-  const neupan_uav::DuneResult result = postprocessor.process(points);
-
-  EXPECT_EQ(result.selected_count, 3u);
-  EXPECT_DOUBLE_EQ(result.min_distance, 1.0);
-  EXPECT_TRUE(result.selected_points.isApprox(points));
-}
-
-TEST(DunePostprocessor, ProjectsRawMuComputesLambdaAndDistance) {
+TEST(DunePostprocessor, ProjectsRawMuComputesLambdaAndMargin) {
   const neupan_uav::DunePostprocessorConfig config = aabbConfig(1, 1);
   neupan_uav::DunePostprocessor postprocessor(config);
   neupan_uav::PointMatrix points(3, 1);
@@ -304,7 +279,7 @@ TEST(DunePostprocessor, ProjectsRawMuComputesLambdaAndDistance) {
   EXPECT_NEAR(result.lambda_batch[0](0, 0), -1.0F, 1.0e-6F);
   EXPECT_NEAR(result.lambda_batch[0](1, 0), 0.0F, 1.0e-6F);
   EXPECT_NEAR(result.lambda_batch[0](2, 0), 0.0F, 1.0e-6F);
-  EXPECT_NEAR(result.min_distance, 1.5, 1.0e-6);
+  EXPECT_NEAR(result.min_margin, 1.5, 1.0e-6);
   EXPECT_EQ(result.selected_count, 1u);
   EXPECT_EQ(result.profile.dune_selected_count, 1u);
 }
@@ -439,7 +414,7 @@ TEST(DunePostprocessor, MatchesPythonNumpyPostprocessGoldenScenario) {
   ASSERT_EQ(result.selected_count, 2u);
   ASSERT_EQ(result.mu_batch.size(), 2u);
   ASSERT_EQ(result.lambda_batch.size(), 2u);
-  EXPECT_NEAR(result.min_distance, 0.5, 1.0e-6);
+  EXPECT_NEAR(result.min_margin, 0.5, 1.0e-6);
   EXPECT_TRUE(result.selected_points.col(0).isApprox(point_flow[0].col(0)));
   EXPECT_TRUE(result.selected_points.col(1).isApprox(point_flow[0].col(3)));
   EXPECT_NEAR(result.mu_batch[0](0, 0), 1.0F, 1.0e-6F);
@@ -476,7 +451,7 @@ TEST(DunePostprocessor, MatchesPythonGeneratedRandomParityFixture) {
       fixture.obstacle_points, &fixture.tags);
 
   ASSERT_EQ(result.selected_count, fixture.expected_selected_count);
-  EXPECT_NEAR(result.min_distance, fixture.expected_min_distance, 2.0e-5);
+  EXPECT_NEAR(result.min_margin, fixture.expected_min_margin, 2.0e-5);
   EXPECT_NEAR(result.selection_profile.nearest_selected_per_step,
               fixture.expected_nearest, 1.0e-6);
   EXPECT_NEAR(result.selection_profile.temporal_selected_per_step,
@@ -524,7 +499,7 @@ TEST(DunePostprocessor, EmptyRawMuDoesNotRequireHardware) {
       repeatPoints(neupan_uav::emptyPointMatrix(), config.receding));
 
   EXPECT_EQ(result.selected_count, 0u);
-  EXPECT_TRUE(std::isinf(result.min_distance));
+  EXPECT_TRUE(std::isinf(result.min_margin));
   EXPECT_EQ(result.profile.dune_selected_count, 0u);
 }
 

@@ -786,7 +786,7 @@ void writeReport(const std::string& path,
     writeVector(out,
                 tracking != nullptr ? tracking->plan.nominal_distance.transpose()
                                     : Eigen::VectorXd());
-      out << ",\n      \"min_distance\": ";
+      out << ",\n      \"geometric_clearance\": ";
       if (output.diagnostics().geometric_clearance.has_value()) {
         writeJsonNumber(out, *output.diagnostics().geometric_clearance);
       } else {

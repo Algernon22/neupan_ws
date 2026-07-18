@@ -9,6 +9,7 @@
 
 #include <memory>
 #include <limits>
+#include <optional>
 #include <vector>
 
 namespace neupan_uav {
@@ -31,7 +32,7 @@ struct PanOutput {
   Trajectory reference;
   Eigen::MatrixXd control_trajectory;
   Eigen::RowVectorXd nominal_distance;
-  double min_distance = std::numeric_limits<double>::infinity();
+  double dune_min_margin = std::numeric_limits<double>::infinity();
   PlannerProfile profile;
 };
 
@@ -57,7 +58,7 @@ class PAN {
 
   PanConfig config_;
   NRMP nrmp_;
-  DunePostprocessor dune_;
+  std::optional<DunePostprocessor> dune_;
   PointFlowBuilder point_flow_;
   std::unique_ptr<RknnRunner> rknn_runner_;
   Trajectory previous_nominal_states_;

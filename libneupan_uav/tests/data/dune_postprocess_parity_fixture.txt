@@ -86,7 +86,7 @@ obstacle_points 4 3 7
 -2.214850187 1.678342342 1.879950881 1.735068321 -1.753630042 -1.484773397 -3.140995264
 tags 7
 0 1 2 0 3 2 1
-expected_min_distance -4.22446537
+expected_min_margin -4.22446537
 expected_selected_count 4
 expected_profile 2 1.75 1.75
 expected_selected_points 3 4

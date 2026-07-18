@@ -83,7 +83,7 @@ struct PlannerOptions {
   double arrive_threshold = 0.2;
   bool has_goal = false;
   Eigen::Vector3d goal_position = Eigen::Vector3d::Zero();
-  Control placeholder_command = Control::Zero();
+  Control default_command = Control::Zero();
 };
 
 struct UavDynamicsConfig {
@@ -130,7 +130,7 @@ class CompiledPlannerConfig {
   double arriveThreshold() const { return arrive_threshold_; }
   bool hasGoal() const { return has_goal_; }
   const Eigen::Vector3d& goalPosition() const { return goal_position_; }
-  const Control& placeholderCommand() const { return placeholder_command_; }
+  const Control& defaultCommand() const { return default_command_; }
   const RobotModelConfig& robot() const { return robot_; }
   const ObstaclePreselectorConfig& preselect() const { return preselect_; }
   const FarfieldGuideConfig& farfieldGuide() const { return farfield_guide_; }
@@ -150,7 +150,7 @@ class CompiledPlannerConfig {
   double arrive_threshold_ = 0.2;
   bool has_goal_ = false;
   Eigen::Vector3d goal_position_ = Eigen::Vector3d::Zero();
-  Control placeholder_command_ = Control::Zero();
+  Control default_command_ = Control::Zero();
   RobotModelConfig robot_;
   ObstaclePreselectorConfig preselect_;
   FarfieldGuideConfig farfield_guide_;

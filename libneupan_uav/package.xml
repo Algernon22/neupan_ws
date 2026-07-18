@@ -4,7 +4,7 @@
   <name>libneupan_uav</name>
   <version>0.1.0</version>
   <description>
-    ROS-independent C++ UAV planner core skeleton for NeuPAN.
+    ROS-independent C++ UAV planner core for NeuPAN.
   </description>
   <maintainer email="patience@example.com">NeuPAN User</maintainer>
   <license>GPL-3.0-or-later</license>
