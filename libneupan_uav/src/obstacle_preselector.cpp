@@ -1,5 +1,7 @@
 #include "neupan_uav/obstacle_preselector.hpp"
 
+#include "detail/box_geometry.hpp"
+
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -326,8 +328,8 @@ std::vector<int> fallbackPointIndices(
   for (int i = 0; i < point_count; ++i) {
     const Eigen::Vector3d local = rotation.transpose() *
                                   (obstacle_points.col(i) - origin);
-    const Eigen::Vector3d delta = (local.cwiseAbs() - half).cwiseMax(0.0);
-    score[static_cast<std::size_t>(i)] = delta.squaredNorm();
+    score[static_cast<std::size_t>(i)] =
+        detail::pointToBoxClearanceSquared(local, half);
   }
   sortByScoreStable(indices, score);
   indices.resize(static_cast<std::size_t>(keep_count));
@@ -494,9 +496,8 @@ ObstacleSelection ObstaclePreselector::selectWithNominalTrajectory(
       const Eigen::Vector3d local =
           rotations[static_cast<std::size_t>(t)].transpose() *
           (point - nominal_states.col(t).head<3>());
-      const Eigen::Vector3d delta =
-          (local.cwiseAbs() - inflated).cwiseMax(0.0);
-      const double d2 = delta.squaredNorm();
+      const double d2 =
+          detail::pointToBoxClearanceSquared(local, inflated);
       if (d2 < dist_min_sq[static_cast<std::size_t>(ci)]) {
         dist_min_sq[static_cast<std::size_t>(ci)] = d2;
         representative_local[static_cast<std::size_t>(ci)] = local;
@@ -533,9 +534,8 @@ ObstacleSelection ObstaclePreselector::selectWithNominalTrajectory(
         const Eigen::Vector3d local =
             rotations[static_cast<std::size_t>(t)].transpose() *
             (point - nominal_states.col(t).head<3>());
-        const Eigen::Vector3d delta =
-            (local.cwiseAbs() - inflated).cwiseMax(0.0);
-        row.emplace_back(delta.squaredNorm(), ci);
+        row.emplace_back(detail::pointToBoxClearanceSquared(local, inflated),
+                         ci);
       }
       std::stable_sort(row.begin(), row.end(),
                        [](const auto& a, const auto& b) {

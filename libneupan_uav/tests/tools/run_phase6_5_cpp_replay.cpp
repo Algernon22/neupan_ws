@@ -786,12 +786,18 @@ void writeReport(const std::string& path,
     writeVector(out,
                 tracking != nullptr ? tracking->plan.nominal_distance.transpose()
                                     : Eigen::VectorXd());
-    out << ",\n      \"min_distance\": ";
-    if (output.diagnostics().min_clearance.has_value()) {
-      writeJsonNumber(out, *output.diagnostics().min_clearance);
-    } else {
-      out << "null";
-    }
+      out << ",\n      \"min_distance\": ";
+      if (output.diagnostics().geometric_clearance.has_value()) {
+        writeJsonNumber(out, *output.diagnostics().geometric_clearance);
+      } else {
+        out << "null";
+      }
+      out << ",\n      \"dune_margin\": ";
+      if (output.diagnostics().dune_margin.has_value()) {
+        writeJsonNumber(out, *output.diagnostics().dune_margin);
+      } else {
+        out << "null";
+      }
     out << ",\n";
     out << "      \"profile\": {\n";
     out << "        \"forward_sec\": " << output.diagnostics().profile.forward_sec << ",\n";

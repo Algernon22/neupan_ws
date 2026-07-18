@@ -21,6 +21,8 @@ class RobotModel {
 
   const RobotModelConfig& config() const { return config_; }
   Control clampControl(const Control& control) const;
+  double minClearance(const UavState& state,
+                      const PointMatrix& obstacle_points_world) const;
 
  private:
   RobotModelConfig config_;

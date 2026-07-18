@@ -125,8 +125,9 @@ PlannerResult Planner::forward(const PlannerInput& input) {
   diagnostics.profile.input_obstacle_count =
       static_cast<std::size_t>(input.obstacle_points.cols());
 
-  const double raw_clearance = minBodyClearance(state, input.obstacle_points);
-  diagnostics.min_clearance = raw_clearance;
+  const double raw_clearance =
+      robot_.minClearance(input.state, input.obstacle_points);
+  diagnostics.geometric_clearance = raw_clearance;
 
   if (raw_clearance < config_.collisionThreshold()) {
     clearPreviousCommand();
@@ -205,20 +206,6 @@ PlannerResult Planner::forward(const PlannerInput& input) {
         selected.profile.diversity_selected;
     diagnostics.profile.fill_selected = selected.profile.fill_selected;
 
-    const double selected_clearance = minBodyClearance(state, selected.points);
-    diagnostics.min_clearance = selected_clearance;
-    if (selected_clearance < config_.collisionThreshold()) {
-      clearPreviousCommand();
-      resetControlBuffer();
-      diagnostics.profile.forward_sec =
-          std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
-              .count();
-      return PlannerResult::safetyStop(SafetyStopCause::kClearanceViolation,
-                                       selected_clearance,
-                                       config_.collisionThreshold(),
-                                       std::move(diagnostics));
-    }
-
     const PanOutput pan_out = pan_.forward(pan_input);
     Control command = robot_.clampControl(pan_out.command);
     previous_command_ = command;
@@ -248,7 +235,7 @@ PlannerResult Planner::forward(const PlannerInput& input) {
     diagnostics.profile.dune_selected_count =
         pan_out.profile.dune_selected_count;
     if (std::isfinite(pan_out.min_distance)) {
-      diagnostics.min_clearance = pan_out.min_distance;
+      diagnostics.dune_margin = pan_out.min_distance;
     }
     diagnostics.profile.forward_sec =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
@@ -421,23 +408,6 @@ bool Planner::hasArrived(const DynamicsState& state) {
     return true;
   }
   return false;
-}
-
-double Planner::minBodyClearance(const DynamicsState& state,
-                                 const PointMatrix& points) const {
-  if (points.cols() == 0) {
-    return std::numeric_limits<double>::infinity();
-  }
-
-  const Eigen::Vector3d pos = state.head<3>();
-  const Eigen::Vector3d half = config_.robot().body_half_extent.cwiseMax(0.0);
-  double min_clearance = std::numeric_limits<double>::infinity();
-  for (Eigen::Index col = 0; col < points.cols(); ++col) {
-    const Eigen::Vector3d local = points.col(col) - pos;
-    const Eigen::Vector3d delta = (local.cwiseAbs() - half).cwiseMax(0.0);
-    min_clearance = std::min(min_clearance, delta.norm());
-  }
-  return min_clearance;
 }
 
 void Planner::initializePathCache() {

@@ -58,7 +58,8 @@ using PlannerDecision =
 struct PlannerDiagnostics {
   PlannerProfile profile;
   Control warm_start_seed = Control::Zero();
-  std::optional<double> min_clearance;
+  std::optional<double> geometric_clearance;
+  std::optional<double> dune_margin;
 };
 
 class PlannerResult {

@@ -3,6 +3,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <numeric>
 #include <utility>
 #include <variant>
@@ -15,6 +16,12 @@ neupan_uav::UavState stateAt(double x, double y, double z, double yaw) {
   state.attitude_world_body =
       Eigen::Quaterniond(Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()));
   return state;
+}
+
+neupan_uav::PointMatrix point(double x, double y, double z) {
+  neupan_uav::PointMatrix points(3, 1);
+  points << x, y, z;
+  return points;
 }
 
 neupan_uav::RknnMetadata mockMetadata() {
@@ -108,7 +115,7 @@ TEST(PlannerReplaySkeleton, EmptyAndStaticObstacleScenariosAreDeterministic) {
   EXPECT_TRUE(tracking(second).command.allFinite());
   EXPECT_TRUE(second.diagnostics().warm_start_seed.isApprox(
       tracking(first).command));
-  EXPECT_TRUE(std::isinf(first.diagnostics().min_clearance.value()));
+  EXPECT_TRUE(std::isinf(first.diagnostics().geometric_clearance.value()));
 
   neupan_uav::PlannerInput static_input = empty_input;
   static_input.obstacle_points.resize(3, 2);
@@ -121,7 +128,8 @@ TEST(PlannerReplaySkeleton, EmptyAndStaticObstacleScenariosAreDeterministic) {
   EXPECT_TRUE(obstacle_out.isTracking());
   EXPECT_EQ(obstacle_out.diagnostics().profile.input_obstacle_count, 2u);
   EXPECT_EQ(obstacle_out.diagnostics().profile.preselected_obstacle_count, 2u);
-  EXPECT_NEAR(obstacle_out.diagnostics().min_clearance.value(), 3.0, 1e-12);
+  EXPECT_NEAR(obstacle_out.diagnostics().geometric_clearance.value(), 3.0,
+              1e-12);
 }
 
 TEST(PlannerStage6, InitialPathBuildsReferenceTrajectoryAndDesiredCommand) {
@@ -241,6 +249,29 @@ TEST(PlannerStage6, InitialPathArrivalLatchesUntilReset) {
   EXPECT_TRUE(after_reset.isTracking());
 }
 
+TEST(PlannerSafety, RotatedBodyTriggersClearanceStop) {
+  neupan_uav::PlannerOptions options;
+  options.grid.horizon_steps = 3;
+  options.robot.body_half_extent = Eigen::Vector3d(2.0, 0.1, 0.1);
+  options.collision_threshold = 0.05;
+  const neupan_uav::CompiledPlannerConfig config =
+      buildConfig(std::move(options));
+  neupan_uav::Planner planner(config);
+
+  neupan_uav::PlannerInput input;
+  input.state = stateAt(0.0, 0.0, 0.0, M_PI / 2.0);
+  input.obstacle_points = point(0.0, 1.5, 0.0);
+
+  const neupan_uav::PlannerResult out = planner.forward(input);
+
+  const auto* stop = std::get_if<neupan_uav::SafetyStop>(&out.decision());
+  ASSERT_NE(stop, nullptr);
+  EXPECT_EQ(stop->cause, neupan_uav::SafetyStopCause::kClearanceViolation);
+  EXPECT_NEAR(stop->observed_clearance, 0.0, 1e-12);
+  ASSERT_TRUE(out.diagnostics().geometric_clearance.has_value());
+  EXPECT_NEAR(*out.diagnostics().geometric_clearance, 0.0, 1e-12);
+}
+
 TEST(PlannerStage6, ForwardRunsFullNrmpCycleWithoutObstacles) {
   const neupan_uav::CompiledPlannerConfig config = fullPlannerConfig(false);
   neupan_uav::Planner planner(config);
@@ -321,7 +352,8 @@ TEST(PlannerStage6, ForwardRunsMockDuneToNrmpObstacleCycle) {
   EXPECT_GT(out.diagnostics().profile.dune_sec, 0.0);
   EXPECT_GT(out.diagnostics().profile.osqp_iteration_count, 0);
   EXPECT_EQ(tracking(out).plan.nominal_distance.size(), config.receding());
-  EXPECT_TRUE(std::isfinite(out.diagnostics().min_clearance.value()));
+  EXPECT_TRUE(std::isfinite(out.diagnostics().geometric_clearance.value()));
+  EXPECT_TRUE(out.diagnostics().dune_margin.has_value());
   EXPECT_TRUE(tracking(out).command.allFinite());
 }
 

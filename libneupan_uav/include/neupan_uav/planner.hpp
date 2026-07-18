@@ -35,8 +35,6 @@ class Planner {
                          FarfieldGuideProfile* farfield_profile);
   Control desiredControl(const DynamicsState& state) const;
   bool hasArrived(const DynamicsState& state);
-  double minBodyClearance(const DynamicsState& state,
-                          const PointMatrix& points) const;
   void initializePathCache();
   bool hasInitialPath() const;
   void updatePathProgress(const DynamicsState& state);
