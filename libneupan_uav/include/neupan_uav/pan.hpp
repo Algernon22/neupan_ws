@@ -15,7 +15,6 @@ namespace neupan_uav {
 
 struct PanInput {
   Control seed_control = Control::Zero();
-  Control desired_control = Control::Zero();
   PointMatrix obstacle_points = emptyPointMatrix();
   PointMatrix obstacle_velocities = emptyPointMatrix();
   Trajectory nominal_states;
@@ -38,7 +37,7 @@ struct PanOutput {
 
 class PAN {
  public:
-  PAN();
+  PAN() = delete;
   explicit PAN(PanConfig config);
 
   void setRknnRunner(std::unique_ptr<RknnRunner> runner);

@@ -308,7 +308,6 @@ PanInput Planner::buildPanInput(const PlannerInput& input,
 
   PanInput pan_input;
   pan_input.seed_control = seed;
-  pan_input.desired_control = desired;
   pan_input.obstacle_points = selected.points;
   pan_input.obstacle_velocities = selected.velocities;
   pan_input.selection_tags = selected.tags;

@@ -241,8 +241,6 @@ TEST(PlannerStage6, InitialPathArrivalLatchesUntilReset) {
   EXPECT_TRUE(after_reset.isTracking());
 }
 
-#ifdef NEUPAN_UAV_WITH_OSQP
-
 TEST(PlannerStage6, ForwardRunsFullNrmpCycleWithoutObstacles) {
   const neupan_uav::CompiledPlannerConfig config = fullPlannerConfig(false);
   neupan_uav::Planner planner(config);
@@ -364,5 +362,3 @@ TEST(PlannerStage6, StableDuneDoesNotStopWhenTrajectoryChanges) {
   ASSERT_TRUE(out.isTracking());
   EXPECT_EQ(out.diagnostics().profile.pan_iterations, config.pan().iter_num);
 }
-
-#endif

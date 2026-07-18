@@ -30,7 +30,6 @@ neupan_uav::NrmpConfig basicConfig(bool with_obstacles = false) {
 neupan_uav::NrmpInput basicInput(const neupan_uav::NrmpConfig& config) {
   neupan_uav::NrmpInput input;
   input.seed_control << 0.0, 0.0, 0.0, 0.0;
-  input.desired_control << 0.0, 0.0, 0.0, 0.0;
   input.nominal_states =
       neupan_uav::Trajectory::Zero(config.state_dim, config.receding + 1);
   input.reference_states =
@@ -54,22 +53,6 @@ neupan_uav::NrmpInput basicInput(const neupan_uav::NrmpConfig& config) {
 
 }  // namespace
 
-TEST(NRMP, DefaultConstructorKeepsPlaceholderCompatibility) {
-  neupan_uav::NRMP nrmp;
-  neupan_uav::NrmpInput input;
-  input.seed_control << 1.0, 2.0, 3.0, 4.0;
-  input.desired_control << -1.0, -2.0, -3.0, -4.0;
-
-  const neupan_uav::NrmpResult result = nrmp.solve(input);
-
-  EXPECT_FALSE(nrmp.hasBackend());
-  EXPECT_TRUE(result.control.isApprox(input.desired_control));
-  EXPECT_EQ(result.status, 0);
-  EXPECT_EQ(result.iterations, 0);
-}
-
-#ifdef NEUPAN_UAV_WITH_OSQP
-
 TEST(NRMP, SolvesNoObstacleProblem) {
   const neupan_uav::NrmpConfig config = basicConfig(false);
   neupan_uav::NRMP nrmp(config);
@@ -79,7 +62,6 @@ TEST(NRMP, SolvesNoObstacleProblem) {
 
   const neupan_uav::NrmpResult result = nrmp.solve(input);
 
-  EXPECT_TRUE(nrmp.hasBackend());
   EXPECT_EQ(result.state_trajectory.rows(), config.state_dim);
   EXPECT_EQ(result.state_trajectory.cols(), config.receding + 1);
   EXPECT_EQ(result.control_trajectory.rows(), config.control_dim);
@@ -151,5 +133,3 @@ TEST(NRMP, ReusesFixedSparseWorkspaceAcrossSolves) {
   EXPECT_EQ(second.solve_count, 2);
   EXPECT_NEAR(second.control(1), -0.4, 0.15);
 }
-
-#endif

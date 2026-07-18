@@ -39,7 +39,6 @@ struct NrmpConfig {
 
 struct NrmpInput {
   Control seed_control = Control::Zero();
-  Control desired_control = Control::Zero();
 
   Trajectory nominal_states;
   Trajectory reference_states;
@@ -73,7 +72,7 @@ struct NrmpResult {
 
 class NRMP {
  public:
-  NRMP();
+  NRMP() = delete;
   explicit NRMP(NrmpConfig config);
   ~NRMP();
 
@@ -82,7 +81,6 @@ class NRMP {
   NRMP(const NRMP&) = delete;
   NRMP& operator=(const NRMP&) = delete;
 
-  bool hasBackend() const;
   const NrmpConfig& config() const;
   NrmpResult solve(const NrmpInput& input);
 

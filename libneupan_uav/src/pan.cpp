@@ -102,12 +102,6 @@ std::pair<double, double> duneDiff(
 
 }  // namespace
 
-PAN::PAN()
-    : config_(),
-      nrmp_(),
-      dune_(),
-      point_flow_(PointFlowConfig{}) {}
-
 PAN::PAN(PanConfig config)
     : config_(std::move(config)),
       nrmp_(config_.nrmp),
@@ -243,7 +237,6 @@ NrmpInput PAN::buildNrmpInput(const PanInput& input,
                               const DuneResult* dune_result) const {
   NrmpInput nrmp_input;
   nrmp_input.seed_control = input.seed_control;
-  nrmp_input.desired_control = input.desired_control;
   nrmp_input.nominal_states = input.nominal_states;
   nrmp_input.reference_states = input.reference_states;
   nrmp_input.reference_controls = input.reference_controls;

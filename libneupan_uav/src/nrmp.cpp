@@ -8,9 +8,7 @@
 #include <utility>
 #include <vector>
 
-#ifdef NEUPAN_UAV_WITH_OSQP
-#include <osqp/osqp.h>
-#endif
+#include <osqp.h>
 
 namespace neupan_uav {
 
@@ -73,18 +71,7 @@ void validateMatrixShape(const Eigen::MatrixXd& matrix, int rows, int cols,
   }
 }
 
-NrmpResult placeholderSolve(const NrmpInput& input) {
-  NrmpResult result;
-  result.control = input.desired_control;
-  result.status = 0;
-  result.iterations = 0;
-  result.status_text = "placeholder";
-  return result;
-}
-
 }  // namespace
-
-#ifdef NEUPAN_UAV_WITH_OSQP
 
 namespace {
 
@@ -1030,20 +1017,6 @@ class NRMP::Backend {
   int solve_count_ = 0;
 };
 
-#else
-
-class NRMP::Backend {
- public:
-  explicit Backend(const NrmpConfig&) {
-    throw std::runtime_error(
-        "libneupan_uav was built without OSQP support; NRMP backend is unavailable");
-  }
-};
-
-#endif
-
-NRMP::NRMP() = default;
-
 NRMP::NRMP(NrmpConfig config) : config_(std::move(config)) {
   backend_ = std::make_unique<Backend>(config_);
 }
@@ -1052,18 +1025,10 @@ NRMP::~NRMP() = default;
 NRMP::NRMP(NRMP&&) noexcept = default;
 NRMP& NRMP::operator=(NRMP&&) noexcept = default;
 
-bool NRMP::hasBackend() const { return backend_ != nullptr; }
-
 const NrmpConfig& NRMP::config() const { return config_; }
 
 NrmpResult NRMP::solve(const NrmpInput& input) {
-  if (!backend_) return placeholderSolve(input);
-#ifdef NEUPAN_UAV_WITH_OSQP
   return backend_->solve(input);
-#else
-  throw std::runtime_error(
-      "libneupan_uav was built without OSQP support; NRMP solve is unavailable");
-#endif
 }
 
 }  // namespace neupan_uav

@@ -9,26 +9,25 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 option(NEUPAN_UAV_BUILD_TESTS "Build libneupan_uav unit tests" ON)
-option(NEUPAN_UAV_ENABLE_OSQP "Build NRMP with OSQP runtime when available" ON)
 option(NEUPAN_UAV_ENABLE_RKNN "Build RKNN runtime support when available" ON)
 
 find_package(Eigen3 3.3 REQUIRED)
-
-if(NEUPAN_UAV_ENABLE_OSQP)
-  find_path(OSQP_INCLUDE_DIR
-    NAMES osqp/osqp.h
-    PATHS /usr/local/include /usr/include
-  )
-  find_library(OSQP_LIBRARY
-    NAMES osqp
-    PATHS /usr/local/lib /usr/lib /usr/lib/aarch64-linux-gnu
-  )
-  if(OSQP_INCLUDE_DIR AND OSQP_LIBRARY)
-    set(NEUPAN_UAV_OSQP_FOUND ON)
-    message(STATUS "Found OSQP: ${OSQP_LIBRARY}")
-  else()
-    message(WARNING "OSQP was not found; NRMP OSQP backend will be disabled")
-  endif()
+find_package(osqp CONFIG QUIET)
+if(NOT osqp_FOUND)
+  message(FATAL_ERROR
+    "OSQP is required by libneupan_uav. "
+    "Set osqp_DIR or CMAKE_PREFIX_PATH to the OSQP installation.")
+endif()
+if(TARGET osqp::osqp)
+  set(NEUPAN_UAV_OSQP_TARGET osqp::osqp)
+elseif(TARGET osqp::osqpstatic)
+  set(NEUPAN_UAV_OSQP_TARGET osqp::osqpstatic)
+elseif(TARGET osqp)
+  set(NEUPAN_UAV_OSQP_TARGET osqp)
+else()
+  message(FATAL_ERROR
+    "OSQP was found, but it did not export a supported target. "
+    "Expected osqp::osqp, osqp::osqpstatic, or osqp.")
 endif()
 
 if(NEUPAN_UAV_ENABLE_RKNN)
@@ -69,14 +68,11 @@ target_include_directories(neupan_uav PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
-target_link_libraries(neupan_uav PUBLIC Eigen3::Eigen)
+target_link_libraries(neupan_uav
+  PUBLIC Eigen3::Eigen
+  PRIVATE ${NEUPAN_UAV_OSQP_TARGET}
+)
 target_compile_options(neupan_uav PRIVATE -Wall -Wextra -Wpedantic)
-
-if(NEUPAN_UAV_OSQP_FOUND)
-  target_compile_definitions(neupan_uav PUBLIC NEUPAN_UAV_WITH_OSQP)
-  target_include_directories(neupan_uav PUBLIC ${OSQP_INCLUDE_DIR})
-  target_link_libraries(neupan_uav PUBLIC ${OSQP_LIBRARY})
-endif()
 
 if(NEUPAN_UAV_RKNN_FOUND)
   target_compile_definitions(neupan_uav PUBLIC NEUPAN_UAV_WITH_RKNN)
@@ -128,6 +124,7 @@ include(CMakePackageConfigHelpers)
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/libneupan_uavConfig.cmake" "\
 include(CMakeFindDependencyMacro)
 find_dependency(Eigen3)
+find_dependency(osqp CONFIG)
 include(\"\${CMAKE_CURRENT_LIST_DIR}/libneupan_uavTargets.cmake\")
 ")
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/libneupan_uavConfig.cmake"
