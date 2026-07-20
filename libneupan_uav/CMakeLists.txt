@@ -72,7 +72,7 @@ target_link_libraries(neupan_uav
   PUBLIC Eigen3::Eigen
   PRIVATE ${NEUPAN_UAV_OSQP_TARGET}
 )
-target_compile_options(neupan_uav PRIVATE -Wall -Wextra -Wpedantic)
+target_compile_options(neupan_uav PRIVATE -Wall -Wextra -Wpedantic -Wno-psabi)
 
 if(NEUPAN_UAV_RKNN_FOUND)
   target_compile_definitions(neupan_uav PUBLIC NEUPAN_UAV_WITH_RKNN)

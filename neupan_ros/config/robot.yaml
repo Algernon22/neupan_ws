@@ -32,7 +32,7 @@ px4_control:
     state_odom_timeout: 0.3
     stamp_future_tolerance_ms: 20.0
     enable_takeoff_phase: true
-    takeoff_phase_height: 1.8
+    takeoff_phase_height: 1.0
     takeoff_phase_hysteresis: 0.10
     takeoff_phase_climb_speed: 1.0
     takeoff_phase_max_climb_speed: 2.0
