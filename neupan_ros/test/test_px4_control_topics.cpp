@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "geometry_msgs/msg/twist_stamped.hpp"
+#include "internal_interfaces.hpp"
 #include "mavros_msgs/msg/state.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -36,6 +37,10 @@ class RosFixture : public ::testing::Test {
 
 std::string topicPrefix(const std::string& suffix) {
   return "/neupan_ros_test_px4_" + suffix;
+}
+
+std::string testPlannerConfigPath() {
+  return std::string(NEUPAN_ROS_TEST_DIR) + "/planner_smoke.yaml";
 }
 
 template <typename Predicate, typename Pump>
@@ -106,12 +111,11 @@ struct Px4Harness {
         rclcpp::Parameter("mavros_setpoint_velocity_topic", setpoint_topic),
         rclcpp::Parameter("command_frame", "camera_init"),
         rclcpp::Parameter("control_debug_topic", debug_topic),
+        rclcpp::Parameter("planner_config_file", testPlannerConfigPath()),
         rclcpp::Parameter("heartbeat_rate", 40.0),
         rclcpp::Parameter("command_timeout", 1.0),
         rclcpp::Parameter("state_odom_timeout", 1.0),
         rclcpp::Parameter("enable_takeoff_phase", enable_takeoff),
-        rclcpp::Parameter("takeoff_phase_height", 1.8),
-        rclcpp::Parameter("takeoff_phase_hysteresis", 0.1),
         rclcpp::Parameter("takeoff_phase_climb_speed", 1.0),
         rclcpp::Parameter("takeoff_phase_max_climb_speed", 2.0),
     });
@@ -134,6 +138,12 @@ struct Px4Harness {
             setpoint_topic, 10,
             [this](geometry_msgs::msg::TwistStamped::SharedPtr msg) {
               setpoints.push_back(*msg);
+            });
+    executed_sub =
+        io_node->create_subscription<geometry_msgs::msg::TwistStamped>(
+            neupan_ros::internal::kExecutedCommandTopic, 10,
+            [this](geometry_msgs::msg::TwistStamped::SharedPtr msg) {
+              executed_commands.push_back(*msg);
             });
     debug_sub = io_node->create_subscription<std_msgs::msg::String>(
         debug_topic, 10, [this](std_msgs::msg::String::SharedPtr msg) {
@@ -165,8 +175,10 @@ struct Px4Harness {
   rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr cmd_pub;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr arrived_pub;
   rclcpp::Subscription<geometry_msgs::msg::TwistStamped>::SharedPtr setpoint_sub;
+  rclcpp::Subscription<geometry_msgs::msg::TwistStamped>::SharedPtr executed_sub;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr debug_sub;
   std::vector<geometry_msgs::msg::TwistStamped> setpoints;
+  std::vector<geometry_msgs::msg::TwistStamped> executed_commands;
   std::vector<std::string> debug;
 };
 
@@ -183,6 +195,13 @@ bool latestSetpointNear(const Px4Harness& harness, double vx,
          harness.setpoints.back().header.frame_id == "camera_init";
 }
 
+bool latestExecutedNear(const Px4Harness& harness, double vx,
+                        double vy, double vz, double yaw_rate) {
+  if (harness.executed_commands.empty()) return false;
+  return twistNear(harness.executed_commands.back(), vx, vy, vz, yaw_rate) &&
+         harness.executed_commands.back().header.frame_id == "camera_init";
+}
+
 }  // namespace
 
 TEST_F(RosFixture, HoldPublishesZeroSetpoint) {
@@ -192,7 +211,8 @@ TEST_F(RosFixture, HoldPublishesZeroSetpoint) {
       harness.executor, 2s,
       [&]() {
         return latestDebugContains(harness, "reason=planner_cmd_stale") &&
-               latestSetpointNear(harness, 0.0, 0.0, 0.0, 0.0);
+               latestSetpointNear(harness, 0.0, 0.0, 0.0, 0.0) &&
+               latestExecutedNear(harness, 0.0, 0.0, 0.0, 0.0);
       },
       [&]() { harness.publishReady(2.2); });
 
@@ -206,7 +226,8 @@ TEST_F(RosFixture, TakeoffPublishesClimbSetpoint) {
       harness.executor, 2s,
       [&]() {
         return latestDebugContains(harness, "reason=takeoff_phase") &&
-               latestSetpointNear(harness, 0.0, 0.0, 1.0, 0.0);
+               latestSetpointNear(harness, 0.0, 0.0, 1.0, 0.0) &&
+               latestExecutedNear(harness, 0.0, 0.0, 1.0, 0.0);
       },
       [&]() { harness.publishReady(1.0); });
 
@@ -220,7 +241,8 @@ TEST_F(RosFixture, PlannerCommandIsForwardedToSetpoint) {
       harness.executor, 2s,
       [&]() {
         return latestDebugContains(harness, "reason=following_planner") &&
-               latestSetpointNear(harness, 0.2, -0.1, 0.3, 0.4);
+               latestSetpointNear(harness, 0.2, -0.1, 0.3, 0.4) &&
+               latestExecutedNear(harness, 0.2, -0.1, 0.3, 0.4);
       },
       [&]() {
         harness.publishReady(2.2);

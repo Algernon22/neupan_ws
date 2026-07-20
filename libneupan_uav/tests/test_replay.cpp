@@ -113,8 +113,7 @@ TEST(PlannerReplaySkeleton, EmptyAndStaticObstacleScenariosAreDeterministic) {
   EXPECT_TRUE(second.isTracking());
   EXPECT_TRUE(tracking(first).command.allFinite());
   EXPECT_TRUE(tracking(second).command.allFinite());
-  EXPECT_TRUE(second.diagnostics().warm_start_seed.isApprox(
-      tracking(first).command));
+  EXPECT_TRUE(second.diagnostics().warm_start_seed.isZero());
   EXPECT_TRUE(std::isinf(first.diagnostics().geometric_clearance.value()));
 
   neupan_uav::PlannerInput static_input = empty_input;
@@ -291,10 +290,10 @@ TEST(PlannerStage6, ForwardRunsFullNrmpCycleWithoutObstacles) {
   EXPECT_GT(out.diagnostics().profile.osqp_iteration_count, 0);
   EXPECT_EQ(out.diagnostics().profile.pan_iteration_limit, config.pan().iter_num);
   EXPECT_TRUE(tracking(out).command.allFinite());
-  EXPECT_TRUE(planner.previousCommand().isApprox(tracking(out).command));
+  EXPECT_TRUE(planner.previousCommand().isZero());
 }
 
-TEST(PlannerStage6, PreviousCommandSeedsNextNrmpCycle) {
+TEST(PlannerStage6, ExecutedCommandSeedsNextNrmpCycle) {
   neupan_uav::PlannerOptions options = fullPlannerOptions(false);
   options.nrmp.enable_control_smoothing = true;
   options.pan.smooth_u0 = 100.0;
@@ -307,19 +306,21 @@ TEST(PlannerStage6, PreviousCommandSeedsNextNrmpCycle) {
   input.obstacle_points = neupan_uav::emptyPointMatrix();
 
   neupan_uav::Planner enabled_planner(enabled_config);
+  const neupan_uav::Control executed =
+      (neupan_uav::Control() << 0.15, -0.05, 0.02, 0.01).finished();
+  enabled_planner.setExecutedCommand(executed);
   const neupan_uav::PlannerResult enabled_seed =
       enabled_planner.forward(input);
   const neupan_uav::PlannerResult enabled = enabled_planner.forward(input);
 
   ASSERT_TRUE(enabled_seed.isTracking());
   ASSERT_TRUE(enabled.isTracking());
-  EXPECT_TRUE(enabled.diagnostics().warm_start_seed.isApprox(
-      tracking(enabled_seed).command));
+  EXPECT_TRUE(enabled_seed.diagnostics().warm_start_seed.isApprox(executed));
+  EXPECT_TRUE(enabled.diagnostics().warm_start_seed.isApprox(executed));
   EXPECT_LT((tracking(enabled).command -
              enabled.diagnostics().warm_start_seed).norm(),
             0.25);
-  EXPECT_TRUE(enabled_planner.previousCommand().isApprox(
-      tracking(enabled).command));
+  EXPECT_TRUE(enabled_planner.previousCommand().isApprox(executed));
 }
 
 TEST(PlannerStage6, ForwardRunsMockDuneToNrmpObstacleCycle) {

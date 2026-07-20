@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <filesystem>
 #include <sstream>
 
 namespace neupan_ros {
@@ -30,17 +31,22 @@ Px4ControlNode::Px4ControlNode(const rclcpp::NodeOptions& options)
                                  "/mavros/local_position/odom");
   declare_parameter<std::string>("mavros_setpoint_velocity_topic",
                                  "/mavros/setpoint_velocity/cmd_vel");
+  declare_parameter<std::string>("robot_config_dir", "");
+  declare_parameter<std::string>("planner_config_file", "planner.yaml");
   declare_parameter<std::string>("command_frame", internal::kDefaultCommandFrame);
   declare_parameter<double>("heartbeat_rate", 20.0);
   declare_parameter<double>("command_timeout", 0.30);
   declare_parameter<double>("state_odom_timeout", 0.30);
   declare_parameter<double>("stamp_future_tolerance_ms", 20.0);
   declare_parameter<bool>("enable_takeoff_phase", true);
-  declare_parameter<double>("takeoff_phase_height", 1.8);
-  declare_parameter<double>("takeoff_phase_hysteresis", 0.1);
   declare_parameter<double>("takeoff_phase_climb_speed", 1.0);
   declare_parameter<double>("takeoff_phase_max_climb_speed", 2.0);
   declare_parameter<std::string>("control_debug_topic", "/neupan/control_debug");
+
+  const std::string config_dir = get_parameter("robot_config_dir").as_string();
+  const std::string planner_file =
+      get_parameter("planner_config_file").as_string();
+  const std::string planner_path = resolvePath(config_dir, planner_file);
 
   mavros_state_topic_ = get_parameter("mavros_state_topic").as_string();
   state_odom_topic_ = get_parameter("state_odom_topic").as_string();
@@ -57,18 +63,17 @@ Px4ControlNode::Px4ControlNode(const rclcpp::NodeOptions& options)
       std::max(0.0, get_parameter("takeoff_phase_climb_speed").as_double());
   takeoff_max_climb_speed_ =
       std::max(0.0, get_parameter("takeoff_phase_max_climb_speed").as_double());
-  const double takeoff_release_height =
-      std::max(0.0, get_parameter("takeoff_phase_height").as_double()) +
-      std::max(0.0, get_parameter("takeoff_phase_hysteresis").as_double());
   config_.enable_takeoff_phase =
       get_parameter("enable_takeoff_phase").as_bool();
-  config_.takeoff_release_height_m = takeoff_release_height;
+  config_.takeoff_target_height_m = loadTakeoffTargetHeight(planner_path);
 
   const double heartbeat_rate =
       std::max(2.0, get_parameter("heartbeat_rate").as_double());
 
   setpoint_pub_ =
       create_publisher<geometry_msgs::msg::TwistStamped>(setpoint_topic_, 10);
+  executed_cmd_pub_ = create_publisher<geometry_msgs::msg::TwistStamped>(
+      internal::kExecutedCommandTopic, 10);
   debug_pub_ = create_publisher<std_msgs::msg::String>(control_debug_topic_, 10);
 
   cmd_sub_ = create_subscription<geometry_msgs::msg::TwistStamped>(
@@ -90,6 +95,28 @@ Px4ControlNode::Px4ControlNode(const rclcpp::NodeOptions& options)
   timer_ = create_wall_timer(
       std::chrono::duration<double>(1.0 / heartbeat_rate),
       [this]() { timerCallback(); });
+}
+
+std::string Px4ControlNode::resolvePath(
+    const std::string& base_dir, const std::string& maybe_relative) const {
+  std::filesystem::path path(maybe_relative);
+  if (path.is_absolute()) return path.string();
+  if (base_dir.empty()) return path.string();
+  return (std::filesystem::path(base_dir) / path).string();
+}
+
+double Px4ControlNode::loadTakeoffTargetHeight(
+    const std::string& planner_path) const {
+  const LoadedPlannerConfig loaded = loadPlannerConfig(planner_path);
+  if (loaded.options.initial_path.waypoints.empty()) {
+    throw std::runtime_error(
+        "takeoff target requires ipath.waypoints[0] in planner config");
+  }
+  const double z = loaded.options.initial_path.waypoints.front()(2);
+  if (!std::isfinite(z)) {
+    throw std::runtime_error("takeoff target height must be finite");
+  }
+  return z;
 }
 
 double Px4ControlNode::nowSec() {
@@ -223,6 +250,7 @@ void Px4ControlNode::publishSetpoint(const neupan_uav::Control& control) {
   const auto msg =
       controlToTwistStamped(control, get_clock()->now(), command_frame_);
   setpoint_pub_->publish(msg);
+  executed_cmd_pub_->publish(msg);
 }
 
 neupan_uav::Control Px4ControlNode::takeoffSetpoint() const {

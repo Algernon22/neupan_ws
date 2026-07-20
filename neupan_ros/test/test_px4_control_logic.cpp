@@ -19,7 +19,7 @@ neupan_ros::ControlInputs makeInputs() {
 neupan_ros::ControlConfig makeConfig() {
   neupan_ros::ControlConfig config;
   config.enable_takeoff_phase = true;
-  config.takeoff_release_height_m = 1.9;
+  config.takeoff_target_height_m = 1.9;
   return config;
 }
 

@@ -24,9 +24,8 @@ ipath:
   yaw_from_tangent: true
   warn_infeasible_ref_speed: true
   waypoints:
-    - [0.0, 0.0, 1.0, 0.0]
-    - [8.0, 3.0, 1.0, 0.0]
-    - [15.0, 0.0, 1.0, 0.0]
+    - [0.0, 0.0, 1.2, 0.0]
+    - [15.0, 0.0, 1.2, 0.0]
   arrive_threshold: 0.8
 
 preselect:
@@ -81,7 +80,7 @@ adjust:
   smooth_u0: 6.0      # 惩罚首个规划控制偏离上一实际发布控制；越大跨周期跳变越小。
   eta: 6.0
   d_max: 4.0         # 最多远离障碍多d_max米
-  d_min: 0.8         # 与障碍物至少保持多远
+  d_min: 0.4         # 与障碍物至少保持多远
   ro_obs: 260
   bk: 0.18
   solver_args:

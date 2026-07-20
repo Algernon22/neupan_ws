@@ -72,7 +72,7 @@ install(TARGETS neupan_ros_core neupan_uav_node px4_control
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 install(DIRECTORY include/ DESTINATION include)
-install(DIRECTORY launch config models DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY launch config models rviz DESTINATION share/${PROJECT_NAME})
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
@@ -110,6 +110,8 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_px4_control_topics test/test_px4_control_topics.cpp)
   target_link_libraries(test_px4_control_topics neupan_ros_nodes)
+  target_compile_definitions(test_px4_control_topics PRIVATE
+    NEUPAN_ROS_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test")
 
   ament_add_gtest(test_uav_node_smoke test/test_uav_node_smoke.cpp)
   target_link_libraries(test_uav_node_smoke neupan_ros_nodes)

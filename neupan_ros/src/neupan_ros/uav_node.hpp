@@ -14,6 +14,7 @@
 
 #include "geometry_msgs/msg/twist_stamped.hpp"
 #include "nav_msgs/msg/odometry.hpp"
+#include "nav_msgs/msg/path.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
 #include "std_msgs/msg/bool.hpp"
@@ -45,6 +46,7 @@ class UavNode final : public rclcpp::Node {
 
   struct PlannerResult {
     neupan_uav::Control command = neupan_uav::Control::Zero();
+    nav_msgs::msg::Path local_path;
     bool publish_command = false;
     bool arrived = false;
     std::uint64_t generated_stamp_ns = 0;
@@ -60,10 +62,18 @@ class UavNode final : public rclcpp::Node {
       const sensor_msgs::msg::PointCloud2& msg);
   std::optional<PlannerJob> snapshotPlannerInputs();
   PlannerResult runPlannerOnce(const PlannerJob& job);
+  nav_msgs::msg::Path trajectoryToPath(const neupan_uav::Trajectory& trajectory,
+                                       const builtin_interfaces::msg::Time& stamp) const;
+  nav_msgs::msg::Path waypointsToPath(
+      const std::vector<Eigen::Vector4d>& waypoints,
+      const builtin_interfaces::msg::Time& stamp) const;
+  void publishReferencePath();
   void plannerWorkerMain();
   void publishLoop();
   void stateCallback(const nav_msgs::msg::Odometry::SharedPtr msg);
   void cloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
+  void executedCommandCallback(
+      const geometry_msgs::msg::TwistStamped::SharedPtr msg);
   void storeLatestResult(const PlannerResult& result);
 
   std::unique_ptr<neupan_uav::Planner> planner_;
@@ -85,6 +95,7 @@ class UavNode final : public rclcpp::Node {
   bool profile_planner_ = false;
 
   std::mutex data_mutex_;
+  std::mutex planner_mutex_;
   std::optional<LatestState> latest_state_;
   std::optional<LatestCloud> latest_cloud_;
   PlannerResult latest_result_;
@@ -94,8 +105,12 @@ class UavNode final : public rclcpp::Node {
 
   rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr cmd_pub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr arrived_pub_;
+  rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr local_path_pub_;
+  rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr reference_path_pub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr state_sub_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::TwistStamped>::SharedPtr
+      executed_cmd_sub_;
   rclcpp::TimerBase::SharedPtr publish_timer_;
 };
 

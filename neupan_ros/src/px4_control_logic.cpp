@@ -6,9 +6,9 @@ namespace neupan_ros {
 
 namespace {
 
-bool takeoffReleased(const ControlInputs& inputs, double release_height_m) {
+bool takeoffReleased(const ControlInputs& inputs, double target_height_m) {
   return inputs.has_altitude &&
-         inputs.altitude_m >= std::max(0.0, release_height_m);
+         inputs.altitude_m >= std::max(0.0, target_height_m);
 }
 
 }  // namespace
@@ -26,7 +26,7 @@ ControlPhase advanceControlPhase(ControlPhase previous_phase,
 
   if (previous_phase == ControlPhase::kTakeoff) {
     if (inputs.planner_arrived) return ControlPhase::kFinish;
-    if (takeoffReleased(inputs, config.takeoff_release_height_m)) {
+    if (takeoffReleased(inputs, config.takeoff_target_height_m)) {
       return ControlPhase::kCarry;
     }
     return ControlPhase::kTakeoff;

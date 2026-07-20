@@ -65,8 +65,6 @@ Planner::Planner(const CompiledPlannerConfig& config)
       preselector_(config.preselect()),
       farfield_guide_(config.farfieldGuide()),
       pan_(config.pan()) {
-  const int control_dim = config_.pan().nrmp.control_dim;
-  control_buffer_ = Eigen::MatrixXd::Zero(control_dim, config_.receding());
   initializePathCache();
 }
 
@@ -74,33 +72,36 @@ void Planner::setRknnRunner(std::unique_ptr<RknnRunner> runner) {
   pan_.setRknnRunner(std::move(runner));
 }
 
+void Planner::setExecutedCommand(const Control& command) {
+  if (!command.allFinite()) {
+    throw std::invalid_argument("executed command must contain finite values");
+  }
+  executed_command_ = robot_.clampControl(command);
+}
+
 PlannerResult Planner::forward(const PlannerInput& input) {
   const auto start = std::chrono::steady_clock::now();
-  const Control seed = previous_command_;
+  const Control seed = executed_command_;
   PlannerDiagnostics diagnostics;
   diagnostics.warm_start_seed = seed;
 
   if (!input.valid) {
-    clearPreviousCommand();
     return PlannerResult::faultStop(PlannerFault::kInvalidInput,
                                     "planner input was marked invalid",
                                     std::move(diagnostics));
   }
   if (input.stale) {
-    clearPreviousCommand();
     return PlannerResult::faultStop(PlannerFault::kStaleInput,
                                     "planner input is stale",
                                     std::move(diagnostics));
   }
   if (!allFiniteState(input.state)) {
-    clearPreviousCommand();
     return PlannerResult::faultStop(PlannerFault::kInvalidState,
                                     "state contains invalid values",
                                     std::move(diagnostics));
   }
   if (input.obstacle_points.rows() != 3 ||
       !allFinite(input.obstacle_points)) {
-    clearPreviousCommand();
     return PlannerResult::faultStop(
         PlannerFault::kInvalidObstaclePoints,
         "obstacle points must have shape 3xN and finite values",
@@ -110,7 +111,6 @@ PlannerResult Planner::forward(const PlannerInput& input) {
       (input.obstacle_velocities.rows() != 3 ||
        input.obstacle_velocities.cols() != input.obstacle_points.cols() ||
        !allFinite(input.obstacle_velocities))) {
-    clearPreviousCommand();
     return PlannerResult::faultStop(
         PlannerFault::kInvalidObstacleVelocities,
         "obstacle velocities must be empty or finite with shape 3xN matching "
@@ -130,8 +130,6 @@ PlannerResult Planner::forward(const PlannerInput& input) {
   diagnostics.geometric_clearance = raw_clearance;
 
   if (raw_clearance < config_.collisionThreshold()) {
-    clearPreviousCommand();
-    resetControlBuffer();
     diagnostics.profile.forward_sec =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
             .count();
@@ -142,8 +140,6 @@ PlannerResult Planner::forward(const PlannerInput& input) {
   }
 
   if (hasArrived(state)) {
-    clearPreviousCommand();
-    resetControlBuffer();
     diagnostics.profile.forward_sec =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
             .count();
@@ -208,17 +204,12 @@ PlannerResult Planner::forward(const PlannerInput& input) {
 
     const PanOutput pan_out = pan_.forward(pan_input);
     Control command = robot_.clampControl(pan_out.command);
-    previous_command_ = command;
 
     PlanBundle plan;
     plan.trajectory = pan_out.trajectory;
     plan.reference = pan_out.reference;
     plan.control_trajectory = pan_out.control_trajectory;
     plan.nominal_distance = pan_out.nominal_distance;
-    if (pan_out.control_trajectory.rows() == control_buffer_.rows() &&
-        pan_out.control_trajectory.cols() == control_buffer_.cols()) {
-      control_buffer_ = pan_out.control_trajectory;
-    }
     diagnostics.profile.osqp_status = pan_out.profile.osqp_status;
     diagnostics.profile.osqp_iteration_count =
         pan_out.profile.osqp_iteration_count;
@@ -243,8 +234,6 @@ PlannerResult Planner::forward(const PlannerInput& input) {
     return PlannerResult::tracking(command, std::move(plan),
                                    std::move(diagnostics));
   } catch (const std::exception& error) {
-    clearPreviousCommand();
-    resetControlBuffer();
     diagnostics.profile.forward_sec =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
             .count();
@@ -254,8 +243,7 @@ PlannerResult Planner::forward(const PlannerInput& input) {
 }
 
 void Planner::reset() {
-  clearPreviousCommand();
-  resetControlBuffer();
+  clearExecutedCommand();
   preselector_.reset();
   farfield_guide_.reset();
   path_progress_s_ = 0.0;
@@ -307,10 +295,7 @@ PanInput Planner::buildPanInput(const PlannerInput& input,
   Eigen::VectorXd reference = nominal;
   pan_input.nominal_states.col(0) = nominal;
   for (int t = 0; t < T; ++t) {
-    Eigen::VectorXd nominal_control =
-        control_buffer_.rows() == control_dim && control_buffer_.cols() == T
-            ? control_buffer_.col(t)
-            : desired_vec;
+    Eigen::VectorXd nominal_control = desired_vec;
     if (t == 0) nominal_control = seed_vec;
     pan_input.nominal_controls.col(t) = nominal_control;
     nominal = rolloutState(nominal, nominal_control, config_);
@@ -501,12 +486,8 @@ Eigen::Matrix<Scalar, 4, Eigen::Dynamic> Planner::referenceGeometry() const {
   return ref;
 }
 
-void Planner::clearPreviousCommand() {
-  previous_command_.setZero();
-}
-
-void Planner::resetControlBuffer() {
-  control_buffer_.setZero();
+void Planner::clearExecutedCommand() {
+  executed_command_.setZero();
 }
 
 }  // namespace neupan_uav

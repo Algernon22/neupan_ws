@@ -26,6 +26,9 @@ def configured_context(**values):
         "dune_rknn_metadata_file": "__from_robot_yaml__",
         "dune_rknn_core_mask": "__from_robot_yaml__",
         "dune_rknn_require_device": "__from_robot_yaml__",
+        "enable_px4_control": "true",
+        "start_rviz": "false",
+        "rviz_config_file": "__from_robot_yaml__",
     }
     defaults.update(values)
     context.launch_configurations.update(defaults)
@@ -47,9 +50,11 @@ class BringupLaunchTest(unittest.TestCase):
         module = load_launch_module()
         context = configured_context()
 
-        planner_node, _ = module._launch_setup(context)
+        planner_node, px4_node = module._launch_setup(context)
 
         self.assertEqual(parameter_override_keys(planner_node, context),
+                         {"robot_config_dir", "command_frame"})
+        self.assertEqual(parameter_override_keys(px4_node, context),
                          {"robot_config_dir", "command_frame"})
 
     def test_explicit_arguments_override_robot_yaml(self):
@@ -61,7 +66,7 @@ class BringupLaunchTest(unittest.TestCase):
             dune_rknn_require_device="false",
         )
 
-        planner_node, _ = module._launch_setup(context)
+        planner_node, px4_node = module._launch_setup(context)
 
         self.assertEqual(
             parameter_override_keys(planner_node, context),
@@ -74,6 +79,10 @@ class BringupLaunchTest(unittest.TestCase):
                 "dune_rknn_require_device",
             },
         )
+        self.assertEqual(
+            parameter_override_keys(px4_node, context),
+            {"robot_config_dir", "command_frame", "planner_config_file"},
+        )
 
     def test_disable_rknn_overrides_metadata_with_empty_string_only(self):
         module = load_launch_module()
@@ -85,6 +94,15 @@ class BringupLaunchTest(unittest.TestCase):
             parameter_override_keys(planner_node, context),
             {"robot_config_dir", "command_frame", "dune_rknn_metadata_file"},
         )
+
+    def test_can_disable_px4_control_for_observe_only_mode(self):
+        module = load_launch_module()
+        context = configured_context(enable_px4_control="false")
+
+        nodes = module._launch_setup(context)
+
+        self.assertEqual(len(nodes), 1)
+        self.assertEqual(nodes[0]._Node__node_executable, "neupan_uav_node")
 
 
 if __name__ == "__main__":

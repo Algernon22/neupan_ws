@@ -1,5 +1,6 @@
 #pragma once
 
+#include "neupan_ros/config_loader.hpp"
 #include "neupan_ros/px4_control_logic.hpp"
 #include "neupan_uav/types.hpp"
 
@@ -39,6 +40,9 @@ class Px4ControlNode final : public rclcpp::Node {
   void publishDebugTopic(const ControlDecision& decision);
   void publishSetpoint(const neupan_uav::Control& control);
   neupan_uav::Control takeoffSetpoint() const;
+  std::string resolvePath(const std::string& base_dir,
+                          const std::string& maybe_relative) const;
+  double loadTakeoffTargetHeight(const std::string& planner_path) const;
   void timerCallback();
   void cmdCallback(const geometry_msgs::msg::TwistStamped::SharedPtr msg);
   void plannerArrivedCallback(const std_msgs::msg::Bool::SharedPtr msg);
@@ -70,6 +74,7 @@ class Px4ControlNode final : public rclcpp::Node {
   ControlDecision decision_;
 
   rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr setpoint_pub_;
+  rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr executed_cmd_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr debug_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
   rclcpp::Subscription<geometry_msgs::msg::TwistStamped>::SharedPtr cmd_sub_;

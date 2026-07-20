@@ -10,6 +10,7 @@
 
 #include "geometry_msgs/msg/twist_stamped.hpp"
 #include "nav_msgs/msg/odometry.hpp"
+#include "nav_msgs/msg/path.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rcl_interfaces/msg/log.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
@@ -156,6 +157,8 @@ struct UavHarness {
     cloud_topic = prefix + "/cloud";
     cmd_topic = prefix + "/cmd";
     arrived_topic = prefix + "/arrived";
+    local_path_topic = prefix + "/local_path";
+    reference_path_topic = prefix + "/reference_path";
 
     rclcpp::NodeOptions options;
     options.arguments({
@@ -164,6 +167,10 @@ struct UavHarness {
         "neupan/planner/cmd_vel:=" + cmd_topic,
         "-r",
         "neupan/planner/arrived:=" + arrived_topic,
+        "-r",
+        "neupan/planner/local_path:=" + local_path_topic,
+        "-r",
+        "neupan/planner/reference_path:=" + reference_path_topic,
     });
     options.parameter_overrides({
         rclcpp::Parameter("robot_config_dir", testConfigPath("")),
@@ -194,6 +201,15 @@ struct UavHarness {
     arrived_sub = io_node->create_subscription<std_msgs::msg::Bool>(
         arrived_topic, 10, [this](std_msgs::msg::Bool::SharedPtr msg) {
           arrived.push_back(*msg);
+        });
+    local_path_sub = io_node->create_subscription<nav_msgs::msg::Path>(
+        local_path_topic, 10, [this](nav_msgs::msg::Path::SharedPtr msg) {
+          local_paths.push_back(*msg);
+        });
+    reference_path_sub = io_node->create_subscription<nav_msgs::msg::Path>(
+        reference_path_topic, rclcpp::QoS(1).transient_local().reliable(),
+        [this](nav_msgs::msg::Path::SharedPtr msg) {
+          reference_paths.push_back(*msg);
         });
     rosout_sub = io_node->create_subscription<rcl_interfaces::msg::Log>(
         "/rosout", 50, [this](rcl_interfaces::msg::Log::SharedPtr msg) {
@@ -227,6 +243,8 @@ struct UavHarness {
   std::string cloud_topic;
   std::string cmd_topic;
   std::string arrived_topic;
+  std::string local_path_topic;
+  std::string reference_path_topic;
   std::shared_ptr<neupan_ros::UavNode> uav_node;
   std::shared_ptr<rclcpp::Node> io_node;
   rclcpp::executors::MultiThreadedExecutor executor;
@@ -234,9 +252,13 @@ struct UavHarness {
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_pub;
   rclcpp::Subscription<geometry_msgs::msg::TwistStamped>::SharedPtr cmd_sub;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr arrived_sub;
+  rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr local_path_sub;
+  rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr reference_path_sub;
   rclcpp::Subscription<rcl_interfaces::msg::Log>::SharedPtr rosout_sub;
   std::vector<geometry_msgs::msg::TwistStamped> commands;
   std::vector<std_msgs::msg::Bool> arrived;
+  std::vector<nav_msgs::msg::Path> local_paths;
+  std::vector<nav_msgs::msg::Path> reference_paths;
   std::vector<std::string> logs;
 };
 
@@ -258,6 +280,49 @@ TEST_F(RosFixture, PlannerNodePublishesCommandAndArrivedFromFakeInputs) {
   EXPECT_TRUE(std::isfinite(cmd.twist.linear.z));
   EXPECT_TRUE(std::isfinite(cmd.twist.angular.z));
   EXPECT_FALSE(harness.arrived.back().data);
+}
+
+TEST_F(RosFixture, PlannerNodePublishesLocalPathFromTrackingPlan) {
+  UavHarness harness("local_path", 20.0, 10.0);
+
+  const bool ok = spinUntil(
+      harness.executor, 4s,
+      [&]() {
+        return std::any_of(
+            harness.local_paths.begin(), harness.local_paths.end(),
+            [](const nav_msgs::msg::Path& path) {
+              return path.header.frame_id == "camera_init" &&
+                     path.poses.size() > 1 &&
+                     std::isfinite(path.poses.back().pose.position.x) &&
+                     std::isfinite(path.poses.back().pose.position.y) &&
+                     std::isfinite(path.poses.back().pose.position.z);
+            });
+      },
+      [&]() { harness.publishPlanningInputs(0.0, 0.0, 2.0); });
+
+  ASSERT_TRUE(ok);
+}
+
+TEST_F(RosFixture, PlannerNodePublishesReferencePathFromWaypoints) {
+  UavHarness harness("reference_path", 20.0, 10.0);
+
+  const bool ok = spinUntil(
+      harness.executor, 4s,
+      [&]() {
+        return std::any_of(
+            harness.reference_paths.begin(), harness.reference_paths.end(),
+            [](const nav_msgs::msg::Path& path) {
+              return path.header.frame_id == "camera_init" &&
+                     path.poses.size() == 2 &&
+                     std::abs(path.poses.front().pose.position.z - 2.0) <
+                         1.0e-9 &&
+                     std::abs(path.poses.back().pose.position.x - 20.0) <
+                         1.0e-9;
+            });
+      },
+      []() {});
+
+  ASSERT_TRUE(ok);
 }
 
 TEST_F(RosFixture, PlannerNodeProfileLogIncludesFarfieldFields) {

@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <cstdio>
 #include <limits>
@@ -27,6 +28,14 @@ TwistLinearFrame parseTwistLinearFrame(const std::string& value) {
   }
   throw std::runtime_error(
       "odom_twist_linear_frame must be 'body' or 'world'");
+}
+
+geometry_msgs::msg::Quaternion yawToQuaternion(double yaw) {
+  geometry_msgs::msg::Quaternion q;
+  if (!std::isfinite(yaw)) yaw = 0.0;
+  q.w = std::cos(0.5 * yaw);
+  q.z = std::sin(0.5 * yaw);
+  return q;
 }
 
 }  // namespace
@@ -136,6 +145,11 @@ UavNode::UavNode(const rclcpp::NodeOptions& options)
       internal::kPlannerCommandTopic, 10);
   arrived_pub_ =
       create_publisher<std_msgs::msg::Bool>(internal::kPlannerArrivedTopic, 10);
+  local_path_pub_ =
+      create_publisher<nav_msgs::msg::Path>(internal::kPlannerLocalPathTopic, 10);
+  reference_path_pub_ = create_publisher<nav_msgs::msg::Path>(
+      internal::kPlannerReferencePathTopic,
+      rclcpp::QoS(1).transient_local().reliable());
   state_sub_ = create_subscription<nav_msgs::msg::Odometry>(
       state_topic_, rclcpp::SensorDataQoS(),
       [this](nav_msgs::msg::Odometry::SharedPtr msg) { stateCallback(msg); });
@@ -144,11 +158,18 @@ UavNode::UavNode(const rclcpp::NodeOptions& options)
       [this](sensor_msgs::msg::PointCloud2::SharedPtr msg) {
         cloudCallback(msg);
       });
+  executed_cmd_sub_ =
+      create_subscription<geometry_msgs::msg::TwistStamped>(
+          internal::kExecutedCommandTopic, 10,
+          [this](geometry_msgs::msg::TwistStamped::SharedPtr msg) {
+            executedCommandCallback(msg);
+          });
   publish_timer_ = create_wall_timer(
       std::chrono::duration<double>(1.0 / update_rate_),
       [this]() { publishLoop(); });
 
   planner_thread_ = std::thread([this]() { plannerWorkerMain(); });
+  publishReferencePath();
   RCLCPP_INFO(get_logger(), "neupan_ros C++ planner node initialized");
 }
 
@@ -259,6 +280,23 @@ void UavNode::cloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg) 
   latest_cloud_ = std::move(*cloud);
 }
 
+void UavNode::executedCommandCallback(
+    const geometry_msgs::msg::TwistStamped::SharedPtr msg) {
+  if (!msg->header.frame_id.empty() && msg->header.frame_id != command_frame_) {
+    logThrottledWarn("executed_cmd_frame", 1.0,
+                     "Ignoring executed command in unexpected frame");
+    return;
+  }
+  try {
+    std::lock_guard<std::mutex> lock(planner_mutex_);
+    planner_->setExecutedCommand(twistStampedToControl(*msg));
+  } catch (const std::exception& exc) {
+    logThrottledWarn("executed_cmd_invalid", 1.0,
+                     std::string("Ignoring invalid executed command: ") +
+                         exc.what());
+  }
+}
+
 std::optional<UavNode::PlannerJob> UavNode::snapshotPlannerInputs() {
   const double now_s = nowSec();
   std::lock_guard<std::mutex> lock(data_mutex_);
@@ -293,6 +331,54 @@ std::optional<UavNode::PlannerJob> UavNode::snapshotPlannerInputs() {
   return job;
 }
 
+nav_msgs::msg::Path UavNode::trajectoryToPath(
+    const neupan_uav::Trajectory& trajectory,
+    const builtin_interfaces::msg::Time& stamp) const {
+  nav_msgs::msg::Path path;
+  path.header.stamp = stamp;
+  path.header.frame_id = command_frame_;
+  if (trajectory.rows() < 3 || trajectory.cols() <= 0) return path;
+
+  path.poses.reserve(static_cast<std::size_t>(trajectory.cols()));
+  for (Eigen::Index col = 0; col < trajectory.cols(); ++col) {
+    geometry_msgs::msg::PoseStamped pose;
+    pose.header = path.header;
+    pose.pose.position.x = trajectory(0, col);
+    pose.pose.position.y = trajectory(1, col);
+    pose.pose.position.z = trajectory(2, col);
+    const double yaw = trajectory.rows() >= 4 ? trajectory(3, col) : 0.0;
+    pose.pose.orientation = yawToQuaternion(yaw);
+    path.poses.push_back(pose);
+  }
+  return path;
+}
+
+nav_msgs::msg::Path UavNode::waypointsToPath(
+    const std::vector<Eigen::Vector4d>& waypoints,
+    const builtin_interfaces::msg::Time& stamp) const {
+  nav_msgs::msg::Path path;
+  path.header.stamp = stamp;
+  path.header.frame_id = command_frame_;
+  path.poses.reserve(waypoints.size());
+  for (const Eigen::Vector4d& waypoint : waypoints) {
+    geometry_msgs::msg::PoseStamped pose;
+    pose.header = path.header;
+    pose.pose.position.x = waypoint(0);
+    pose.pose.position.y = waypoint(1);
+    pose.pose.position.z = waypoint(2);
+    pose.pose.orientation = yawToQuaternion(waypoint(3));
+    path.poses.push_back(pose);
+  }
+  return path;
+}
+
+void UavNode::publishReferencePath() {
+  if (reference_path_pub_ == nullptr) return;
+  const auto path = waypointsToPath(loaded_config_.options.initial_path.waypoints,
+                                   get_clock()->now());
+  reference_path_pub_->publish(path);
+}
+
 UavNode::PlannerResult UavNode::runPlannerOnce(const PlannerJob& job) {
   PlannerResult result;
 
@@ -300,7 +386,10 @@ UavNode::PlannerResult UavNode::runPlannerOnce(const PlannerJob& job) {
   input.state = job.state.state;
   input.obstacle_points =
       pointsBodyToWorld(job.cloud.points_body, job.state.state);
-  const neupan_uav::PlannerResult out = planner_->forward(input);
+  const neupan_uav::PlannerResult out = [&]() {
+    std::lock_guard<std::mutex> lock(planner_mutex_);
+    return planner_->forward(input);
+  }();
   const auto& diagnostics = out.diagnostics();
 
   result.generated_stamp_ns = nowNanoseconds();
@@ -308,6 +397,12 @@ UavNode::PlannerResult UavNode::runPlannerOnce(const PlannerJob& job) {
   result.publish_command = true;
   result.arrived = std::holds_alternative<neupan_uav::GoalReached>(
       out.decision());
+  const rclcpp::Time stamp(static_cast<int64_t>(result.generated_stamp_ns));
+  result.local_path.header.stamp = stamp;
+  result.local_path.header.frame_id = command_frame_;
+  if (const auto* tracking = std::get_if<neupan_uav::Tracking>(&out.decision())) {
+    result.local_path = trajectoryToPath(tracking->plan.trajectory, stamp);
+  }
 
   if (const auto* fault =
                  std::get_if<neupan_uav::FaultStop>(&out.decision())) {
@@ -370,6 +465,9 @@ void UavNode::plannerWorkerMain() {
 	      result.publish_command = true;
 	      result.arrived = false;
 	      result.generated_stamp_ns = nowNanoseconds();
+	      const rclcpp::Time stamp(static_cast<int64_t>(result.generated_stamp_ns));
+	      result.local_path.header.stamp = stamp;
+	      result.local_path.header.frame_id = command_frame_;
 	      storeLatestResult(result);
 	    }
   }
@@ -386,6 +484,7 @@ void UavNode::publishLoop() {
 	  const auto cmd =
 	      controlToTwistStamped(result.command, stamp, command_frame_);
 	  cmd_pub_->publish(cmd);
+	  local_path_pub_->publish(result.local_path);
 
 	  std_msgs::msg::Bool arrived;
 	  arrived.data = result.arrived;

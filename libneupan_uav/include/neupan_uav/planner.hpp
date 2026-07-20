@@ -21,11 +21,13 @@ class Planner {
 
   PlannerResult forward(const PlannerInput& input);
   void setRknnRunner(std::unique_ptr<RknnRunner> runner);
+  void setExecutedCommand(const Control& command);
 
   void reset();
 
   const CompiledPlannerConfig& config() const { return config_; }
-  Control previousCommand() const { return previous_command_; }
+  Control previousCommand() const { return executed_command_; }
+  Control executedCommand() const { return executed_command_; }
 
  private:
   PlannerFault classifyPlanningException(const std::exception& error) const;
@@ -41,16 +43,14 @@ class Planner {
   double projectPathProgress(const Eigen::Vector3d& position) const;
   Eigen::Vector4d samplePath(double progress_s) const;
   Eigen::Matrix<Scalar, 4, Eigen::Dynamic> referenceGeometry() const;
-  void clearPreviousCommand();
-  void resetControlBuffer();
+  void clearExecutedCommand();
 
   CompiledPlannerConfig config_;
   RobotModel robot_;
   ObstaclePreselector preselector_;
   FarfieldGuide farfield_guide_;
   PAN pan_;
-  Control previous_command_ = Control::Zero();
-  Eigen::MatrixXd control_buffer_;
+  Control executed_command_ = Control::Zero();
   std::vector<Eigen::Vector4d> path_waypoints_;
   std::vector<double> path_s_;
   double path_progress_s_ = 0.0;

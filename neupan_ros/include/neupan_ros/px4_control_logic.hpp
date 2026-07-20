@@ -29,7 +29,7 @@ struct ControlInputs {
 
 struct ControlConfig {
   bool enable_takeoff_phase = true;
-  double takeoff_release_height_m = 1.9;
+  double takeoff_target_height_m = 0.0;
 };
 
 struct ControlDecision {

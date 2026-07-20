@@ -23,6 +23,7 @@ TEST(ConfigLoader, LoadsCurrentPlannerYamlShape) {
   EXPECT_NEAR(config.arrive_threshold, 0.8, 1e-12);
   EXPECT_TRUE(config.has_goal);
   ASSERT_EQ(config.initial_path.waypoints.size(), 2U);
+  EXPECT_NEAR(config.initial_path.waypoints.front()(2), 1.2, 1e-12);
   EXPECT_NEAR(config.initial_path.waypoints.back()(0), 5.0, 1e-12);
   EXPECT_NEAR(config.robot.body_half_extent(0), 0.32, 1e-12);
   EXPECT_NEAR(config.robot.body_half_extent(1), 0.32, 1e-12);
@@ -44,7 +45,7 @@ TEST(ConfigLoader, LoadsCurrentPlannerYamlShape) {
   EXPECT_EQ(config.nrmp.max_constraints, 20);
   EXPECT_NEAR(config.pan.p_u, 1.5, 1e-12);
   EXPECT_NEAR(config.pan.eta, 6.0, 1e-12);
-  EXPECT_NEAR(config.pan.d_min, 0.8, 1e-12);
+  EXPECT_NEAR(config.pan.d_min, 0.4, 1e-12);
   EXPECT_NEAR(config.pan.d_max, 4.0, 1e-12);
   EXPECT_NEAR(config.pan.ro_obs, 260.0, 1e-12);
   EXPECT_NEAR(config.pan.bk, 0.18, 1e-12);
